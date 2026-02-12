@@ -7,7 +7,8 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sanctuary-dev-secret-change-in-production';
+// JWT_SECRET must be set in environment - no fallback for security
+const JWT_SECRET = process.env.JWT_SECRET!;
 const JWT_ACCESS_EXPIRY = '24h';
 const JWT_REFRESH_EXPIRY = '7d';
 const BCRYPT_SALT_ROUNDS = 12;

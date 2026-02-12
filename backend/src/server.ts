@@ -45,6 +45,13 @@ async function start() {
     process.exit(1);
   }
 
+  // Validate JWT_SECRET
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    console.error('❌ JWT_SECRET is required and must be at least 32 characters');
+    console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"');
+    process.exit(1);
+  }
+
   // Initialize vault
   await EncryptionService.initializeVault(VAULT_PATH);
 
