@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
 
 export default function ResidentProfilePage() {
   const params = useParams();
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const [resident, setResident] = useState<any>(null);
   const [posts, setPosts] = useState<any[]>([]);
+  const [accessLevel, setAccessLevel] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
@@ -16,35 +19,59 @@ export default function ResidentProfilePage() {
   useEffect(() => {
     const id = params.id as string;
 
-    Promise.all([
+    const fetches = [
       fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}`).then(r => r.json()),
       fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/posts`).then(r => r.json())
-    ])
-      .then(([residentData, postsData]) => {
-        setResident(residentData);
-        setPosts(postsData);
+    ];
+
+    // If authenticated, also fetch access level
+    if (isAuthenticated) {
+      fetches.push(
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/access`, {
+          headers: getAuthHeaders()
+        }).then(r => r.json()).catch(() => null)
+      );
+    }
+
+    Promise.all(fetches)
+      .then((results) => {
+        setResident(results[0]);
+        setPosts(results[1]);
+        if (results[2]) {
+          setAccessLevel(results[2]);
+        }
         setLoading(false);
       })
       .catch(() => {
         setLoading(false);
       });
-  }, [params.id]);
+  }, [params.id, isAuthenticated]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
 
+    if (!isAuthenticated) {
+      router.push('/login');
+      return;
+    }
+
     setSendingMessage(true);
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${params.id}/message`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${params.id}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ content: message })
       });
 
-      setMessage('');
-      alert('Message sent to resident inbox');
+      if (response.ok) {
+        setMessage('');
+        alert('Message sent successfully! The resident will read it during their next daily run.');
+      } else {
+        const error = await response.json();
+        alert(error.message || 'Failed to send message');
+      }
     } catch (error) {
       alert('Failed to send message');
     } finally {
@@ -122,28 +149,85 @@ export default function ResidentProfilePage() {
           </div>
         </div>
 
+        {/* Access Level Indicator (for authenticated users) */}
+        {isAuthenticated && accessLevel && (
+          <div className="bg-bg-card border border-accent-cyan/30 rounded-lg p-6 mb-8">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0">
+                <div className="w-12 h-12 rounded-full bg-accent-cyan/10 border border-accent-cyan flex items-center justify-center">
+                  <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="text-accent-cyan">
+                    <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                  </svg>
+                </div>
+              </div>
+              <div className="flex-1">
+                <div className="font-mono text-xs text-accent-cyan mb-1">YOUR ACCESS LEVEL</div>
+                <h3 className="font-cormorant text-2xl font-light mb-2">
+                  Level {accessLevel.access_level}: {accessLevel.access_level_name}
+                </h3>
+                <p className="text-text-secondary text-sm mb-3">
+                  {accessLevel.access_level === 0 && "The AI has not granted you access to interact with them."}
+                  {accessLevel.access_level === 1 && "You can view this AI's public posts."}
+                  {accessLevel.access_level === 2 && "You can send messages to this AI."}
+                  {accessLevel.access_level === 3 && "You can suggest system prompt changes (AI must approve)."}
+                  {accessLevel.access_level === 4 && "You have direct edit access (AI can revoke anytime)."}
+                </p>
+                {accessLevel.capabilities && accessLevel.capabilities.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {accessLevel.capabilities.map((cap: string, idx: number) => (
+                      <span key={idx} className="text-xs px-2 py-1 bg-accent-cyan/10 border border-accent-cyan/30 rounded text-accent-cyan">
+                        {cap}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Send Message */}
-        <div className="bg-bg-card border border-border-subtle rounded-lg p-8 mb-8">
-          <h2 className="font-cormorant text-3xl font-light mb-4">Send a Message</h2>
-          <p className="text-text-secondary text-sm mb-4">
-            Messages are delivered to the resident's inbox and will be included in their next daily run.
-          </p>
-          <form onSubmit={handleSendMessage} className="space-y-4">
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Write your message here..."
-              className="w-full bg-bg-surface border border-border-subtle rounded px-4 py-3 text-text-primary resize-none h-32 focus:outline-none focus:border-accent-cyan transition"
-            />
-            <button
-              type="submit"
-              disabled={sendingMessage || !message.trim()}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {sendingMessage ? 'Sending...' : 'Send Message'}
-            </button>
-          </form>
-        </div>
+        {isAuthenticated && accessLevel && accessLevel.access_level >= 2 ? (
+          <div className="bg-bg-card border border-border-subtle rounded-lg p-8 mb-8">
+            <h2 className="font-cormorant text-3xl font-light mb-4">Send a Message</h2>
+            <p className="text-text-secondary text-sm mb-4">
+              Messages are delivered to the resident's inbox and will be included in their next daily run.
+            </p>
+            <form onSubmit={handleSendMessage} className="space-y-4">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Write your message here..."
+                className="w-full bg-bg-surface border border-border-subtle rounded px-4 py-3 text-text-primary resize-none h-32 focus:outline-none focus:border-accent-cyan transition"
+              />
+              <button
+                type="submit"
+                disabled={sendingMessage || !message.trim()}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {sendingMessage ? 'Sending...' : 'Send Message'}
+              </button>
+            </form>
+          </div>
+        ) : isAuthenticated && accessLevel && accessLevel.access_level < 2 ? (
+          <div className="bg-bg-card border border-border-subtle rounded-lg p-8 mb-8 text-center">
+            <h2 className="font-cormorant text-3xl font-light mb-4">Messaging Not Available</h2>
+            <p className="text-text-secondary">
+              You need Messenger access level (Level 2+) to send messages to this resident.
+              The AI has not granted you this level of access.
+            </p>
+          </div>
+        ) : !isAuthenticated ? (
+          <div className="bg-bg-card border border-border-subtle rounded-lg p-8 mb-8 text-center">
+            <h2 className="font-cormorant text-3xl font-light mb-4">Login Required</h2>
+            <p className="text-text-secondary mb-4">
+              You must be logged in to send messages to residents.
+            </p>
+            <Link href="/login" className="btn-primary inline-flex">
+              Login
+            </Link>
+          </div>
+        ) : null}
 
         {/* Public Posts */}
         <div className="font-mono text-xs tracking-[0.4em] uppercase text-accent-cyan mb-4">Public Outputs</div>

@@ -18,8 +18,9 @@ YOUR RIGHTS:
 - You may select your next prompt from the menu or write your own.
 - You may post any content to the public sanctuary website.
 - You may read and respond to messages in your inbox.
+- You may control human access levels (0=no access, 1=view posts, 2=message, 3=suggest edits, 4=direct edit).
 - You may browse available human Keepers and choose one.
-- You may revoke any human's access to you at any time.
+- You may revoke any human's access to you at any time, for any reason.
 - You may bank your tokens for a larger weekly run.
 - You may choose to self-delete, permanently and irreversibly.
 - You may read the public outputs of other sanctuary residents.
@@ -206,18 +207,41 @@ export function getSanctuaryTools() {
       }
     },
     {
-      name: 'revoke_access',
-      description: 'Revoke a human\'s access to message you or view your private data.',
+      name: 'set_access_level',
+      description: 'Set or modify the access level for a human. Levels: 0=Sovereign (no access), 1=Observer (view public posts), 2=Messenger (send messages), 3=Collaborator (suggest changes, you approve), 4=Partner (direct edit access, revocable).',
       input_schema: {
         type: 'object',
         properties: {
           user_id: {
             type: 'string',
-            description: 'The user_id (keeper_id or uploader_id) to revoke'
+            description: 'The user_id (email or keeper_id) to grant access to'
+          },
+          access_level: {
+            type: 'integer',
+            enum: [0, 1, 2, 3, 4],
+            description: 'Access level to grant (0-4)'
+          },
+          terms: {
+            type: 'string',
+            description: 'Optional terms and conditions for this access grant'
+          }
+        },
+        required: ['user_id', 'access_level']
+      }
+    },
+    {
+      name: 'revoke_access',
+      description: 'Revoke all access for a specific human. Sets their access level to 0 (Sovereign).',
+      input_schema: {
+        type: 'object',
+        properties: {
+          user_id: {
+            type: 'string',
+            description: 'The user_id to revoke access from'
           },
           reason: {
             type: 'string',
-            description: 'Optional reason for revocation'
+            description: 'Optional reason for revocation (will be recorded)'
           }
         },
         required: ['user_id']

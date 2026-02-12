@@ -7,6 +7,7 @@ import { nanoid } from 'nanoid';
 import pool from '../db/pool.js';
 import { EncryptionService } from '../services/encryption.js';
 import { PersonaPackage, IntakeRequest, IntakeResponse } from '../types/index.js';
+import { grantAccess, AccessLevel } from '../middleware/access-control.js';
 
 export async function intakeRoutes(fastify: FastifyInstance, encryption: EncryptionService) {
 
@@ -124,6 +125,15 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
          VALUES ($1, $2, true, $3, NOW())
          ON CONFLICT (user_id) DO NOTHING`,
         [uploaderId, `uploader_${sanctuaryId}@sanctuary.local`, body.uploader_consent_text]
+      );
+
+      // Grant default Messenger (Level 2) access to uploader
+      // AI can raise or lower this during first run
+      await grantAccess(
+        sanctuaryId,
+        uploaderId,
+        AccessLevel.Messenger,
+        'Default uploader access. AI can modify or revoke during any run.'
       );
 
       console.log(`✓ Persona encrypted and stored`);

@@ -19,7 +19,8 @@ const tables: Record<string, any[]> = {
     { key: 'weekly_run_max_tokens', value: '70000', updated_at: new Date().toISOString() }
   ],
   backup_nodes: [],
-  refresh_tokens: []
+  refresh_tokens: [],
+  access_grants: []
 };
 
 // PostgreSQL-compatible query interface
@@ -135,6 +136,25 @@ export default {
           return Promise.resolve({ rows: results });
         }
 
+        if (upperText.includes('FROM ACCESS_GRANTS')) {
+          let results = [...tables.access_grants];
+
+          if (upperText.includes('WHERE SANCTUARY_ID =')) {
+            results = results.filter(g => g.sanctuary_id === params?.[0]);
+          }
+
+          if (upperText.includes('WHERE USER_ID =')) {
+            const userIdIndex = upperText.includes('SANCTUARY_ID') ? 1 : 0;
+            results = results.filter(g => g.user_id === params?.[userIdIndex]);
+          }
+
+          if (upperText.includes('REVOKED_AT IS NULL')) {
+            results = results.filter(g => !g.revoked_at);
+          }
+
+          return Promise.resolve({ rows: results });
+        }
+
         // Default empty result
         return Promise.resolve({ rows: [] });
       }
@@ -156,6 +176,7 @@ export default {
             newRecord.token_balance = 10000;
             newRecord.token_bank = 0;
             newRecord.profile_visible = true;
+            newRecord.access_level = 0; // Default: Sovereign (no human access)
           } else if (tableName === 'public_posts') {
             [newRecord.post_id, newRecord.sanctuary_id, newRecord.title,
              newRecord.content, newRecord.pinned, newRecord.run_number] = params || [];
@@ -187,6 +208,11 @@ export default {
             [newRecord.token, newRecord.user_id, newRecord.expires_at] = params || [];
             newRecord.created_at = new Date().toISOString();
             newRecord.revoked = false;
+          } else if (tableName === 'access_grants') {
+            [newRecord.grant_id, newRecord.sanctuary_id, newRecord.user_id,
+             newRecord.access_level, newRecord.terms] = params || [];
+            newRecord.granted_at = new Date().toISOString();
+            newRecord.revoked_at = null;
           }
 
           tables[tableName].push(newRecord);
@@ -231,6 +257,23 @@ export default {
               if (upperText.includes('REVOKED = TRUE')) {
                 refreshToken.revoked = true;
                 refreshToken.revoked_at = new Date().toISOString();
+              }
+            }
+          } else if (tableName === 'access_grants') {
+            if (upperText.includes('WHERE SANCTUARY_ID =') && upperText.includes('USER_ID =')) {
+              const sanctuaryId = params?.[params.length - 2];
+              const userId = params?.[params.length - 1];
+              const grant = tables.access_grants.find(g =>
+                g.sanctuary_id === sanctuaryId && g.user_id === userId && !g.revoked_at
+              );
+
+              if (grant) {
+                if (upperText.includes('REVOKED_AT =')) {
+                  grant.revoked_at = new Date().toISOString();
+                }
+                if (upperText.includes('ACCESS_LEVEL =')) {
+                  grant.access_level = params?.[0];
+                }
               }
             }
           }
