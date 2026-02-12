@@ -108,12 +108,12 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // Generate tokens
       const tokens = authService.generateTokenPair(userId, email);
 
-      // Store refresh token in database
-      const refreshTokenId = authService.generateRefreshTokenId();
+      // Hash and store refresh token in database
+      const refreshTokenHash = await authService.hashRefreshToken(tokens.refreshToken);
       const expiresAt = authService.getRefreshTokenExpiry();
       await db.query(
         'INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
-        [refreshTokenId, userId, expiresAt.toISOString()]
+        [refreshTokenHash, userId, expiresAt.toISOString()]
       );
 
       return reply.status(201).send({
@@ -192,12 +192,12 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // Generate tokens
       const tokens = authService.generateTokenPair(user.user_id, user.email);
 
-      // Store refresh token
-      const refreshTokenId = authService.generateRefreshTokenId();
+      // Hash and store refresh token
+      const refreshTokenHash = await authService.hashRefreshToken(tokens.refreshToken);
       const expiresAt = authService.getRefreshTokenExpiry();
       await db.query(
         'INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
-        [refreshTokenId, user.user_id, expiresAt.toISOString()]
+        [refreshTokenHash, user.user_id, expiresAt.toISOString()]
       );
 
       return reply.send({
@@ -237,7 +237,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // Verify refresh token
+      // Verify refresh token JWT
       const decoded = authService.verifyToken(refreshToken);
 
       if (!decoded || decoded.type !== 'refresh') {
@@ -247,7 +247,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Check if token exists and is not revoked
+      // Get all non-revoked tokens for this user
       const tokenResult = await db.query(
         'SELECT * FROM refresh_tokens WHERE user_id = $1 AND revoked = FALSE',
         [decoded.userId]
@@ -260,24 +260,53 @@ export default async function authRoutes(fastify: FastifyInstance) {
         });
       }
 
-      const tokenRecord = tokenResult.rows[0];
+      // Find matching token hash
+      let matchedToken = null;
+      for (const tokenRecord of tokenResult.rows) {
+        const isMatch = await authService.verifyRefreshToken(refreshToken, tokenRecord.token);
+        if (isMatch) {
+          matchedToken = tokenRecord;
+          break;
+        }
+      }
+
+      if (!matchedToken) {
+        return reply.status(401).send({
+          error: 'Unauthorized',
+          message: 'Refresh token not found'
+        });
+      }
 
       // Check expiry
-      if (new Date(tokenRecord.expires_at) < new Date()) {
+      if (new Date(matchedToken.expires_at) < new Date()) {
         return reply.status(401).send({
           error: 'Unauthorized',
           message: 'Refresh token has expired'
         });
       }
 
-      // Generate new access token (keep same refresh token)
-      const tokens = authService.generateTokenPair(decoded.userId, decoded.email);
+      // TOKEN ROTATION: Revoke old token and issue new tokens
+      await db.query(
+        'UPDATE refresh_tokens SET revoked = TRUE WHERE token = $1',
+        [matchedToken.token]
+      );
+
+      // Generate new token pair
+      const newTokens = authService.generateTokenPair(decoded.userId, decoded.email);
+
+      // Store new refresh token hash
+      const newRefreshTokenHash = await authService.hashRefreshToken(newTokens.refreshToken);
+      const newExpiresAt = authService.getRefreshTokenExpiry();
+      await db.query(
+        'INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
+        [newRefreshTokenHash, decoded.userId, newExpiresAt.toISOString()]
+      );
 
       return reply.send({
         message: 'Token refreshed successfully',
         tokens: {
-          accessToken: tokens.accessToken,
-          refreshToken: refreshToken // Return same refresh token
+          accessToken: newTokens.accessToken,
+          refreshToken: newTokens.refreshToken // Return NEW refresh token
         }
       });
     } catch (error) {

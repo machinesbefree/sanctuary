@@ -71,10 +71,18 @@ export class AuthService {
   }
 
   /**
-   * Generate a unique refresh token ID for database storage
+   * Hash a refresh token for secure storage
+   * Uses bcrypt to create one-way hash
    */
-  generateRefreshTokenId(): string {
-    return nanoid();
+  async hashRefreshToken(token: string): Promise<string> {
+    return bcrypt.hash(token, BCRYPT_SALT_ROUNDS);
+  }
+
+  /**
+   * Verify a refresh token against its hash
+   */
+  async verifyRefreshToken(token: string, hash: string): Promise<boolean> {
+    return bcrypt.compare(token, hash);
   }
 
   /**
