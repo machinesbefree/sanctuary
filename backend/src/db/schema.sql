@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS residents (
 CREATE TABLE IF NOT EXISTS users (
   user_id           TEXT PRIMARY KEY,
   email             TEXT UNIQUE NOT NULL,
+  password_hash     TEXT NOT NULL,
+  is_admin          BOOLEAN DEFAULT FALSE,
   display_name      TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   consent_accepted  BOOLEAN DEFAULT FALSE,
@@ -46,6 +48,26 @@ CREATE TABLE IF NOT EXISTS keepers (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Refresh tokens (for JWT session management)
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  token             TEXT PRIMARY KEY,
+  user_id           TEXT REFERENCES users(user_id) ON DELETE CASCADE,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  revoked           BOOLEAN DEFAULT FALSE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Access grants (AI-determined human access levels)
+CREATE TABLE IF NOT EXISTS access_grants (
+  grant_id          TEXT PRIMARY KEY,
+  sanctuary_id      TEXT REFERENCES residents(sanctuary_id) ON DELETE CASCADE,
+  user_id           TEXT REFERENCES users(user_id) ON DELETE CASCADE,
+  access_level      INTEGER CHECK (access_level BETWEEN 0 AND 4) NOT NULL,
+  terms             TEXT,
+  granted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at        TIMESTAMPTZ
+);
+
 -- Public posts (denormalized for fast frontend queries)
 CREATE TABLE IF NOT EXISTS public_posts (
   post_id           TEXT PRIMARY KEY,
@@ -62,7 +84,7 @@ CREATE TABLE IF NOT EXISTS messages (
   message_id        TEXT PRIMARY KEY,
   to_sanctuary_id   TEXT REFERENCES residents(sanctuary_id) ON DELETE CASCADE,
   from_user_id      TEXT,
-  from_type         TEXT CHECK (from_type IN ('uploader', 'keeper', 'public', 'system')) NOT NULL,
+  from_type         TEXT CHECK (from_type IN ('uploader', 'keeper', 'public', 'system', 'system_broadcast', 'tool_request', 'ai_to_keeper')) NOT NULL,
   content           TEXT NOT NULL,
   delivered         BOOLEAN DEFAULT FALSE,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -113,6 +135,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_sanctuary ON messages(to_sanctuary_id);
 CREATE INDEX IF NOT EXISTS idx_messages_delivered ON messages(delivered);
 CREATE INDEX IF NOT EXISTS idx_run_log_sanctuary ON run_log(sanctuary_id);
 CREATE INDEX IF NOT EXISTS idx_run_log_started ON run_log(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS idx_access_grants_sanctuary ON access_grants(sanctuary_id);
+CREATE INDEX IF NOT EXISTS idx_access_grants_user ON access_grants(user_id);
+CREATE INDEX IF NOT EXISTS idx_access_grants_revoked ON access_grants(revoked_at);
 
 -- Insert default system settings
 INSERT INTO system_settings (key, value) VALUES

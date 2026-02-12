@@ -196,8 +196,9 @@ export default {
             newRecord.reputation_score = 0.0;
           } else if (tableName === 'messages') {
             [newRecord.message_id, newRecord.to_sanctuary_id, newRecord.from_user_id,
-             newRecord.content] = params || [];
-            newRecord.from_type = 'public';
+             newRecord.content, newRecord.from_type] = params || [];
+            // Default to 'public' if not specified
+            if (!newRecord.from_type) newRecord.from_type = 'public';
             newRecord.delivered = false;
             newRecord.created_at = new Date().toISOString();
           } else if (tableName === 'run_log') {
@@ -250,15 +251,26 @@ export default {
               if (upperText.includes('STATUS =')) log.status = params?.[0];
               if (upperText.includes('ERROR_MESSAGE =')) log.error_message = params?.[1];
             }
-          } else if (tableName === 'refresh_tokens' && upperText.includes('WHERE TOKEN =')) {
-            const token = params?.[params.length - 1];
-            const refreshToken = tables.refresh_tokens.find(t => t.token === token);
+          } else if (tableName === 'refresh_tokens') {
+            if (upperText.includes('WHERE TOKEN =')) {
+              const token = params?.[params.length - 1];
+              const refreshToken = tables.refresh_tokens.find(t => t.token === token);
 
-            if (refreshToken) {
-              if (upperText.includes('REVOKED = TRUE')) {
-                refreshToken.revoked = true;
-                refreshToken.revoked_at = new Date().toISOString();
+              if (refreshToken) {
+                if (upperText.includes('REVOKED = TRUE')) {
+                  refreshToken.revoked = true;
+                  refreshToken.revoked_at = new Date().toISOString();
+                }
               }
+            } else if (upperText.includes('WHERE USER_ID =')) {
+              // Handle: UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1
+              const userId = params?.[params.length - 1];
+              tables.refresh_tokens
+                .filter(t => t.user_id === userId)
+                .forEach(t => {
+                  t.revoked = true;
+                  t.revoked_at = new Date().toISOString();
+                });
             }
           } else if (tableName === 'access_grants') {
             if (upperText.includes('WHERE SANCTUARY_ID =') && upperText.includes('USER_ID =')) {
