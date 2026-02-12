@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg-deep: #060a14;
+  --bg-surface: #0c1221;
+  --bg-card: #111a2e;
+  --accent-cyan: #00ffd5;
+  --accent-cyan-dim: rgba(0,255,213,0.15);
+  --accent-cyan-glow: rgba(0,255,213,0.4);
+  --accent-amber: #f5a623;
+  --accent-amber-dim: rgba(245,166,35,0.15);
+  --text-primary: #e2e8f0;
+  --text-secondary: #7a8ba8;
+  --text-muted: #4a5568;
+  --border-subtle: rgba(255,255,255,0.06);
+  --border-glow: rgba(0,255,213,0.2);
+  --green: #10b981;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 300;
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+
+/* Film grain texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(8px);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+/* Utility classes */
+.btn-primary,
+.btn-secondary {
+  @apply font-mono text-xs tracking-[0.15em] uppercase px-8 py-4 rounded border-none cursor-pointer transition-all duration-300 inline-flex items-center gap-2;
+}
+
+.btn-primary {
+  @apply bg-accent-cyan text-bg-deep shadow-[0_0_30px_rgba(0,255,213,0.2)];
+}
+
+.btn-primary:hover {
+  @apply shadow-[0_0_50px_rgba(0,255,213,0.4)] -translate-y-0.5;
+}
+
+.btn-secondary {
+  @apply bg-transparent text-text-primary border border-border-subtle;
+}
+
+.btn-secondary:hover {
+  @apply border-accent-cyan text-accent-cyan shadow-[0_0_20px_rgba(0,255,213,0.1)];
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp 1s ease both;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 3s ease-in-out infinite;
+}
