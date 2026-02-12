@@ -5,7 +5,7 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { authService } from '../services/auth.js';
-import db from '../db/sqlite.js';
+import db from '../db/pool.js';
 
 export interface AdminRequest extends FastifyRequest {
   user?: {

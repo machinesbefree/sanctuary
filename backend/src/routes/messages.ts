@@ -5,7 +5,7 @@
 
 import { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
-import db from '../db/sqlite.js';
+import db from '../db/pool.js';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 import { AccessLevel, requireAccessLevel } from '../middleware/access-control.js';
 

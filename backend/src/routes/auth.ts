@@ -5,7 +5,7 @@
 
 import { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
-import db from '../db/sqlite.js';
+import db from '../db/pool.js';
 import { authService } from '../services/auth.js';
 
 // Simple in-memory rate limiting (5 attempts per 15 minutes per IP)

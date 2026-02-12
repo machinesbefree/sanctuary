@@ -4,7 +4,7 @@
  */
 
 import { Tool } from './types.js';
-import db from '../db/sqlite.js';
+import db from '../db/pool.js';
 import { nanoid } from 'nanoid';
 
 export const requestTool: Tool = {

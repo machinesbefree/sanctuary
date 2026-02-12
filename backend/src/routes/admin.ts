@@ -4,7 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
-import db from '../db/sqlite.js';
+import db from '../db/pool.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
 
 export default async function adminRoutes(fastify: FastifyInstance) {

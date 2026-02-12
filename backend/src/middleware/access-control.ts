@@ -4,7 +4,7 @@
  */
 
 import { FastifyRequest, FastifyReply } from 'fastify';
-import db from '../db/sqlite.js';
+import db from '../db/pool.js';
 import { AuthenticatedRequest } from './auth.js';
 
 /**
