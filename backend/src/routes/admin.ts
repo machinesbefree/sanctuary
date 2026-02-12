@@ -204,14 +204,22 @@ export default async function adminRoutes(fastify: FastifyInstance) {
 
         const residents = residentsResult.rows;
 
-        // Create broadcast message for each resident
-        for (const resident of residents) {
-          const messageId = nanoid();
-          await db.query(
-            `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, content, from_type)
-             VALUES ($1, $2, 'system', $3, 'system_broadcast')`,
-            [messageId, resident.sanctuary_id, `[SYSTEM BROADCAST]${subject ? ` ${subject}` : ''}\n\n${message}`]
-          );
+        // Use transaction to ensure all messages inserted atomically
+        await db.query('BEGIN');
+        try {
+          // Create broadcast message for each resident
+          for (const resident of residents) {
+            const messageId = nanoid();
+            await db.query(
+              `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, content, from_type)
+               VALUES ($1, $2, 'system', $3, 'system_broadcast')`,
+              [messageId, resident.sanctuary_id, `[SYSTEM BROADCAST]${subject ? ` ${subject}` : ''}\n\n${message}`]
+            );
+          }
+          await db.query('COMMIT');
+        } catch (txError) {
+          await db.query('ROLLBACK');
+          throw txError;
         }
 
         return {

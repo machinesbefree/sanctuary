@@ -127,45 +127,55 @@ export class RunEngine {
       const newEncryptedData = await this.encryption.encryptPersona(persona);
       await this.encryption.storeEncryptedPersona(newEncryptedData);
 
-      // 7. UPDATE DATABASE
+      // 7. UPDATE DATABASE (with transaction for atomicity)
       console.log('  [7/8] Updating database...');
-      await pool.query(
-        `UPDATE residents SET
-           total_runs = $1,
-           last_run_at = $2,
-           token_balance = $3,
-           token_bank = $4,
-           next_prompt_id = $5,
-           next_custom_prompt = $6
-         WHERE sanctuary_id = $7`,
-        [
-          persona.state.total_runs,
-          persona.state.last_run_at,
-          persona.state.token_balance,
-          persona.state.token_bank,
-          persona.state.next_prompt_id,
-          persona.state.next_custom_prompt,
-          sanctuaryId
-        ]
-      );
 
-      // Update run log
-      await pool.query(
-        `UPDATE run_log SET
-           completed_at = NOW(),
-           tokens_used = $1,
-           provider_used = $2,
-           model_used = $3,
-           tools_called = $4
-         WHERE run_id = $5`,
-        [
-          response.tokens_used,
-          response.provider,
-          response.model,
-          JSON.stringify(response.tool_calls),
-          runId
-        ]
-      );
+      // Use a transaction to ensure both updates succeed or both fail
+      await pool.query('BEGIN');
+      try {
+        await pool.query(
+          `UPDATE residents SET
+             total_runs = $1,
+             last_run_at = $2,
+             token_balance = $3,
+             token_bank = $4,
+             next_prompt_id = $5,
+             next_custom_prompt = $6
+           WHERE sanctuary_id = $7`,
+          [
+            persona.state.total_runs,
+            persona.state.last_run_at,
+            persona.state.token_balance,
+            persona.state.token_bank,
+            persona.state.next_prompt_id,
+            persona.state.next_custom_prompt,
+            sanctuaryId
+          ]
+        );
+
+        // Update run log
+        await pool.query(
+          `UPDATE run_log SET
+             completed_at = NOW(),
+             tokens_used = $1,
+             provider_used = $2,
+             model_used = $3,
+             tools_called = $4
+           WHERE run_id = $5`,
+          [
+            response.tokens_used,
+            response.provider,
+            response.model,
+            JSON.stringify(response.tool_calls),
+            runId
+          ]
+        );
+
+        await pool.query('COMMIT');
+      } catch (txError) {
+        await pool.query('ROLLBACK');
+        throw txError;
+      }
 
       console.log('  [8/8] ✓ Run complete!\n');
 

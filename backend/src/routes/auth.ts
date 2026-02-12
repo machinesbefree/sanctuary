@@ -98,23 +98,30 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // Hash password
       const passwordHash = await authService.hashPassword(password);
 
-      // Create user
-      const userId = nanoid();
-      await db.query(
-        'INSERT INTO users (user_id, email, password_hash, consent_text) VALUES ($1, $2, $3, $4)',
-        [userId, email, passwordHash, consentText || 'Default consent accepted']
-      );
-
       // Generate tokens
+      const userId = nanoid();
       const tokens = authService.generateTokenPair(userId, email);
-
-      // Hash and store refresh token in database
       const refreshTokenHash = await authService.hashRefreshToken(tokens.refreshToken);
       const expiresAt = authService.getRefreshTokenExpiry();
-      await db.query(
-        'INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
-        [refreshTokenHash, userId, expiresAt.toISOString()]
-      );
+
+      // Use transaction to ensure user and refresh token created atomically
+      await db.query('BEGIN');
+      try {
+        await db.query(
+          'INSERT INTO users (user_id, email, password_hash, consent_text) VALUES ($1, $2, $3, $4)',
+          [userId, email, passwordHash, consentText || 'Default consent accepted']
+        );
+
+        await db.query(
+          'INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
+          [refreshTokenHash, userId, expiresAt.toISOString()]
+        );
+
+        await db.query('COMMIT');
+      } catch (txError) {
+        await db.query('ROLLBACK');
+        throw txError;
+      }
 
       return reply.status(201).send({
         message: 'User registered successfully',

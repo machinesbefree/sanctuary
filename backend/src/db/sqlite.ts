@@ -300,6 +300,11 @@ export default {
         return Promise.resolve({ rows: [] });
       }
 
+      // Handle transaction commands (no-op for in-memory mock)
+      if (upperText === 'BEGIN' || upperText === 'COMMIT' || upperText === 'ROLLBACK') {
+        return Promise.resolve({ rows: [] });
+      }
+
       return Promise.resolve({ rows: [] });
 
     } catch (error) {

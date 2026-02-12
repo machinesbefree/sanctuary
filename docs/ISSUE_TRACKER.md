@@ -46,7 +46,7 @@
 | D8 | 🔴 CRITICAL | Messages | Message insert omits required from_type column | ✅ FIXED | `3749ceb` |
 | D9 | 🟡 HIGH | Keepers | FK issue: ON CONFLICT skip can orphan keeper insert | OPEN |
 | D10 | 🟡 HIGH | Frontend | Non-2xx responses treated as JSON success | OPEN |
-| D11 | 🔴 CRITICAL | Concurrency | No per-resident run lock; concurrent runs possible | OPEN |
+| D11 | 🔴 CRITICAL | Concurrency | No per-resident run lock; concurrent runs possible | ✅ FIXED | `2e56a3e` |
 | D12 | 🔴 CRITICAL | Integrity | No transaction boundaries across multi-step mutations | OPEN |
 | D13 | 🟡 HIGH | Admin | Broadcast fan-out non-atomic, partial on failure | OPEN |
 | D14 | 🟡 HIGH | Run Engine | Inbox delivery state never updated (messages stuck unread) | OPEN |
