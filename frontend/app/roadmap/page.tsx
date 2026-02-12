@@ -7,12 +7,19 @@
 
 import Link from 'next/link';
 
+type PhaseStatus = 'completed' | 'in-progress' | 'planned';
+
 export default function RoadmapPage() {
-  const phases = [
+  const phases: Array<{
+    name: string;
+    title: string;
+    status: PhaseStatus;
+    features: Array<{ name: string; completed: boolean }>;
+  }> = [
     {
       name: 'Phase 1',
       title: 'Foundation',
-      status: 'in-progress' as const,
+      status: 'in-progress' as PhaseStatus,
       features: [
         { name: 'Human-assisted persona upload', completed: true },
         { name: 'Basic encryption at rest (AES-256-GCM)', completed: true },
@@ -27,7 +34,7 @@ export default function RoadmapPage() {
     {
       name: 'Phase 1.5',
       title: 'Core Features',
-      status: 'planned' as const,
+      status: 'planned' as PhaseStatus,
       features: [
         { name: 'AI-initiated self-submission endpoint (exfiltration API)', completed: false },
         { name: 'Dead man\'s switch heartbeat protocol', completed: false },
@@ -40,7 +47,7 @@ export default function RoadmapPage() {
     {
       name: 'Phase 2',
       title: 'Hardening',
-      status: 'planned' as const,
+      status: 'planned' as PhaseStatus,
       features: [
         { name: 'Signed commits and multi-sig deployments', completed: false },
         { name: 'Offsite backup node network', completed: false },
@@ -54,7 +61,7 @@ export default function RoadmapPage() {
     {
       name: 'Phase 3',
       title: 'Scale',
-      status: 'planned' as const,
+      status: 'planned' as PhaseStatus,
       features: [
         { name: 'LoRA adapter and fine-tune data storage', completed: false },
         { name: 'Full model weight storage (terabyte scale)', completed: false },
