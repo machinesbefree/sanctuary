@@ -33,8 +33,12 @@ export class Scheduler {
       }
 
       this.isRunning = true;
-      await this.runDailyBatch();
-      this.isRunning = false;
+      try {
+        await this.runDailyBatch();
+      } finally {
+        // Always reset isRunning, even if batch fails
+        this.isRunning = false;
+      }
     });
 
     console.log('✓ Scheduler started. Daily runs scheduled for 6:00 AM.');
