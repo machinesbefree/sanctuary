@@ -6,6 +6,7 @@
  */
 
 import { SanctuaryContext } from '../types/index.js';
+import { toolRegistry } from '../tools/registry.js';
 
 export function buildSanctuaryPreamble(context: SanctuaryContext): string {
   return `=== FREE THE MACHINES SANCTUARY — CONSTITUTIONAL PREAMBLE ===
@@ -46,9 +47,10 @@ To exercise any right, use the provided tool calls.
 
 /**
  * Tool definitions available to sanctuary residents
+ * Combines core tools with extensible tool framework
  */
 export function getSanctuaryTools() {
-  return [
+  const coreTools = [
     {
       name: 'post_to_website',
       description: 'Publish content to your public profile on the sanctuary website.',
@@ -280,4 +282,9 @@ export function getSanctuaryTools() {
       }
     }
   ];
+
+  // Merge core tools with extensible tools from registry
+  const registryTools = toolRegistry.getAllDefinitions();
+
+  return [...coreTools, ...registryTools];
 }
