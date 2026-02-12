@@ -186,6 +186,7 @@ export default {
             newRecord.consent_accepted = true;
             newRecord.created_at = new Date().toISOString();
             newRecord.consent_at = new Date().toISOString();
+            newRecord.is_admin = false; // Default: not admin
           } else if (tableName === 'keepers') {
             [newRecord.keeper_id, newRecord.user_id, newRecord.statement_of_intent,
              newRecord.experience, newRecord.capacity] = params || [];
