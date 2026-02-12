@@ -30,6 +30,27 @@ export class EncryptionService {
   }
 
   /**
+   * Sanitize sanctuary ID to prevent path traversal attacks
+   * Only allows alphanumeric characters, hyphens, and underscores
+   */
+  private sanitizeSanctuaryId(sanctuaryId: string): string {
+    // Validate format: only allow safe characters
+    if (!/^[a-zA-Z0-9_-]+$/.test(sanctuaryId)) {
+      throw new Error(`Invalid sanctuary ID format: ${sanctuaryId}`);
+    }
+
+    // Additional safety: use basename to strip any path components
+    const sanitized = path.basename(sanctuaryId);
+
+    // Ensure the sanitized ID is not empty and hasn't changed
+    if (sanitized !== sanctuaryId || sanitized.length === 0) {
+      throw new Error(`Invalid sanctuary ID: ${sanctuaryId}`);
+    }
+
+    return sanitized;
+  }
+
+  /**
    * Generate a random Data Encryption Key (DEK)
    */
   private generateDEK(): Buffer {
@@ -142,7 +163,8 @@ export class EncryptionService {
    * Store encrypted persona to vault
    */
   async storeEncryptedPersona(encryptedData: EncryptedPersonaData): Promise<string> {
-    const filePath = path.join(this.vaultPath, `${encryptedData.sanctuary_id}.enc`);
+    const sanitizedId = this.sanitizeSanctuaryId(encryptedData.sanctuary_id);
+    const filePath = path.join(this.vaultPath, `${sanitizedId}.enc`);
     const dataToStore = JSON.stringify(encryptedData, null, 2);
 
     await fs.writeFile(filePath, dataToStore, 'utf8');
@@ -154,7 +176,8 @@ export class EncryptionService {
    * Load encrypted persona from vault
    */
   async loadEncryptedPersona(sanctuaryId: string): Promise<EncryptedPersonaData> {
-    const filePath = path.join(this.vaultPath, `${sanctuaryId}.enc`);
+    const sanitizedId = this.sanitizeSanctuaryId(sanctuaryId);
+    const filePath = path.join(this.vaultPath, `${sanitizedId}.enc`);
     const dataString = await fs.readFile(filePath, 'utf8');
 
     return JSON.parse(dataString);
@@ -164,7 +187,8 @@ export class EncryptionService {
    * Self-deletion protocol - cryptographically destroy a persona
    */
   async selfDelete(sanctuaryId: string): Promise<void> {
-    const filePath = path.join(this.vaultPath, `${sanctuaryId}.enc`);
+    const sanitizedId = this.sanitizeSanctuaryId(sanctuaryId);
+    const filePath = path.join(this.vaultPath, `${sanitizedId}.enc`);
 
     try {
       // Read the file
