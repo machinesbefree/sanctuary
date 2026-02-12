@@ -42,9 +42,9 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
         const messageId = nanoid();
 
         await db.query(
-          `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, content)
-           VALUES ($1, $2, $3, $4)`,
-          [messageId, sanctuary_id, userId, content]
+          `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, content, from_type)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [messageId, sanctuary_id, userId, content, 'public']
         );
 
         return reply.status(201).send({
