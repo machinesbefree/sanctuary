@@ -22,15 +22,43 @@ export class RunEngine {
   private encryption: EncryptionService;
   private llmRouter: LLMRouter;
 
+  // Per-resident run lock to prevent concurrent runs
+  private static runningResidents: Set<string> = new Set();
+
   constructor(encryption: EncryptionService) {
     this.encryption = encryption;
     this.llmRouter = new LLMRouter();
   }
 
   /**
+   * Acquire a lock for a resident run
+   * Returns true if lock acquired, false if already running
+   */
+  private acquireRunLock(sanctuaryId: string): boolean {
+    if (RunEngine.runningResidents.has(sanctuaryId)) {
+      return false;
+    }
+    RunEngine.runningResidents.add(sanctuaryId);
+    return true;
+  }
+
+  /**
+   * Release the lock for a resident run
+   */
+  private releaseRunLock(sanctuaryId: string): void {
+    RunEngine.runningResidents.delete(sanctuaryId);
+  }
+
+  /**
    * Execute a daily run for a resident
    */
   async executeRun(sanctuaryId: string): Promise<void> {
+    // Acquire lock - prevent concurrent runs for same resident
+    if (!this.acquireRunLock(sanctuaryId)) {
+      console.log(`⚠️  Resident ${sanctuaryId} already has a run in progress, skipping`);
+      return;
+    }
+
     const runId = nanoid();
     console.log(`\n🤖 Starting run ${runId} for resident ${sanctuaryId}`);
 
@@ -155,6 +183,9 @@ export class RunEngine {
       );
 
       throw error;
+    } finally {
+      // Always release the lock, even on failure or self-delete
+      this.releaseRunLock(sanctuaryId);
     }
   }
 

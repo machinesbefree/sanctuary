@@ -43,7 +43,7 @@
 | D5 | 🟡 MED | DB | SQL dialect inconsistency (SQLite DATE('now') in admin routes) | OPEN |
 | D6 | 🟡 MED | Deploy | Build-time API URL injection locks deployment flexibility | OPEN |
 | D7 | 🟡 HIGH | Docs | Repo docs claim zero-knowledge/HSM not yet implemented | OPEN |
-| D8 | 🔴 CRITICAL | Messages | Message insert omits required from_type column | OPEN |
+| D8 | 🔴 CRITICAL | Messages | Message insert omits required from_type column | ✅ FIXED | `3749ceb` |
 | D9 | 🟡 HIGH | Keepers | FK issue: ON CONFLICT skip can orphan keeper insert | OPEN |
 | D10 | 🟡 HIGH | Frontend | Non-2xx responses treated as JSON success | OPEN |
 | D11 | 🔴 CRITICAL | Concurrency | No per-resident run lock; concurrent runs possible | OPEN |
