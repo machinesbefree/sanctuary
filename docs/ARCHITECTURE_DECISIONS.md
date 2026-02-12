@@ -81,3 +81,24 @@
 - **Rationale:** Fallback secrets in production are a critical vulnerability. Fail-secure is better than fail-open.
 - **Commit:** `5b28f0e`
 - **Status:** Implemented ✅
+
+## ADR-016: Per-Resident Run Locks
+- **Decision:** In-memory Set tracks running residents. Run blocked if resident already executing. Lock released in finally block.
+- **Rationale:** Prevents race conditions on file writes, state updates, and database modifications. Critical for data integrity.
+- **Limitation:** In-memory locks don't work across multiple server instances. For distributed deployments, Redis or database-based locking needed.
+- **Commit:** `2e56a3e`
+- **Status:** Implemented ✅
+
+## ADR-017: Transaction Boundaries for Multi-Step Mutations
+- **Decision:** Wrap related database operations in BEGIN...COMMIT with ROLLBACK on error. Applied to: run completion (residents + run_log), admin broadcast (N messages), user registration (user + refresh_token).
+- **Rationale:** Prevents partial state on errors. All operations succeed atomically or none do.
+- **PostgreSQL:** Real transactions via BEGIN/COMMIT/ROLLBACK
+- **In-memory mock:** No-op acknowledgment (acceptable for dev/testing)
+- **Commit:** `fffca31`
+- **Status:** Implemented ✅
+
+## ADR-018: Message from_type Classification
+- **Decision:** Authenticated user messages default to 'public' type. Schema enforces CHECK constraint on from_type.
+- **Rationale:** Distinguishes message sources: uploader, keeper, public, system, system_broadcast, tool_request, ai_to_keeper. Enables filtering and access control.
+- **Commit:** `3749ceb`
+- **Status:** Implemented ✅

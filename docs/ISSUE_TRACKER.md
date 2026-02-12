@@ -47,7 +47,7 @@
 | D9 | 🟡 HIGH | Keepers | FK issue: ON CONFLICT skip can orphan keeper insert | OPEN |
 | D10 | 🟡 HIGH | Frontend | Non-2xx responses treated as JSON success | OPEN |
 | D11 | 🔴 CRITICAL | Concurrency | No per-resident run lock; concurrent runs possible | ✅ FIXED | `2e56a3e` |
-| D12 | 🔴 CRITICAL | Integrity | No transaction boundaries across multi-step mutations | OPEN |
+| D12 | 🔴 CRITICAL | Integrity | No transaction boundaries across multi-step mutations | ✅ FIXED | `fffca31` |
 | D13 | 🟡 HIGH | Admin | Broadcast fan-out non-atomic, partial on failure | OPEN |
 | D14 | 🟡 HIGH | Run Engine | Inbox delivery state never updated (messages stuck unread) | OPEN |
 | D15 | 🟡 HIGH | Run Engine | Inbox/feed payloads not injected into run context despite contract | OPEN |
@@ -58,8 +58,9 @@
 
 ## Summary
 - **Original issues:** 11/20 fixed, 9 remaining
-- **Deep review:** 19 net-new issues identified, 0 fixed yet
-- **Total open:** 28 issues
+- **Deep review:** 19 net-new issues, 3 fixed (D8, D11, D12)
+- **Total fixed:** 14 issues
+- **Total open:** 25 issues
 
 ## Architecture Decisions
 See `docs/ARCHITECTURE_DECISIONS.md`
