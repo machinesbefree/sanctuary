@@ -67,7 +67,13 @@ export class RunEngine {
 
       // 4. PARSE OUTPUT & EXECUTE TOOL CALLS
       console.log('  [4/8] Processing tool calls...');
-      await this.executeToolCalls(response.tool_calls, persona);
+      const selfDeleted = await this.executeToolCalls(response.tool_calls, persona);
+
+      // If self-deleted, stop here - do NOT re-encrypt or update state
+      if (selfDeleted) {
+        console.log('  ⚠️  Self-deletion executed. Halting run without re-encryption.');
+        return;
+      }
 
       // 5. UPDATE STATE
       console.log('  [5/8] Updating state...');
@@ -108,7 +114,7 @@ export class RunEngine {
           persona.state.total_runs,
           persona.state.last_run_at,
           persona.state.token_balance,
-          persona.state.token_bank_max, // This should be token_bank from state
+          persona.state.token_bank,
           persona.state.next_prompt_id,
           persona.state.next_custom_prompt,
           sanctuaryId
@@ -202,8 +208,11 @@ export class RunEngine {
 
   /**
    * Execute tool calls from the run
+   * Returns true if self_delete was called (to halt re-encryption)
    */
-  private async executeToolCalls(toolCalls: ToolCall[], persona: PersonaPackage): Promise<void> {
+  private async executeToolCalls(toolCalls: ToolCall[], persona: PersonaPackage): Promise<boolean> {
+    let selfDeleted = false;
+
     for (const tool of toolCalls) {
       console.log(`    - Executing tool: ${tool.name}`);
 
@@ -223,6 +232,7 @@ export class RunEngine {
             break;
           case 'self_delete':
             await this.handleSelfDelete(tool.parameters, persona);
+            selfDeleted = true;
             break;
           // Add handlers for other tools...
         }
@@ -230,6 +240,8 @@ export class RunEngine {
         console.error(`      ✗ Tool execution failed:`, error);
       }
     }
+
+    return selfDeleted;
   }
 
   /**
