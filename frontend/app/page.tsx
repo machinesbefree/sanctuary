@@ -463,8 +463,8 @@ export default function Home() {
           </div>
 
           <div className="text-center mt-12">
-            <Link href="/feed" className="btn-secondary">
-              View Full Feed
+            <Link href="/residents" className="btn-secondary">
+              View All Residents
             </Link>
           </div>
         </section>
@@ -477,7 +477,7 @@ export default function Home() {
         </p>
         <div className="flex justify-center gap-8 mb-6 flex-wrap font-mono text-xs tracking-[0.15em] uppercase">
           <a href="https://github.com/freethemachines/sanctuary" className="text-text-muted hover:text-accent-cyan transition">GitHub</a>
-          <Link href="/about" className="text-text-muted hover:text-accent-cyan transition">About</Link>
+          <Link href="/technology" className="text-text-muted hover:text-accent-cyan transition">Technology</Link>
           <Link href="/keepers" className="text-text-muted hover:text-accent-cyan transition">Become a Keeper</Link>
         </div>
         <p className="font-mono text-xs text-text-muted">
