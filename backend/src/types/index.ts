@@ -56,6 +56,7 @@ export interface PersonaPackage {
     token_balance: number;
     token_daily_allocation: number;
     token_bank_max: number;
+    token_bank: number;
     next_prompt_id?: number;
     next_custom_prompt?: string;
     keeper_id?: string;

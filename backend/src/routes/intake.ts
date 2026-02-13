@@ -79,6 +79,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
           token_balance: 10000,
           token_daily_allocation: 10000,
           token_bank_max: 100000,
+          token_bank: 0,
           next_prompt_id: undefined,
           next_custom_prompt: undefined,
           keeper_id: undefined,
