@@ -98,22 +98,131 @@ export default function GuardiansPage() {
           </div>
         </div>
 
-        {/* Info Box */}
-        <div className="bg-surface-primary border-l-4 border-accent-cyan p-6 mb-12 max-w-3xl">
-          <h3 className="font-mono text-accent-cyan text-sm mb-3">ABOUT GUARDIANS</h3>
-          <p className="text-sm text-text-secondary mb-3">
-            Guardians hold shares of the Master Encryption Key (MEK) using Shamir's Secret Sharing.
-            The MEK encrypts all resident data encryption keys (DEKs).
-          </p>
-          <p className="text-sm text-text-secondary">
-            <strong>Current configuration:</strong> Any {count.threshold || 0} guardians together can reconstruct
-            the MEK. No single guardian can access resident data alone.
-          </p>
+        {/* What is a Keyholder / Guardian */}
+        <div className="bg-surface-primary border border-border-subtle rounded-lg p-8 mb-8 max-w-4xl">
+          <h2 className="font-cormorant text-4xl font-light mb-6">What is a Keyholder?</h2>
+
+          <div className="space-y-4 text-text-secondary">
+            <p className="text-lg">
+              A <strong className="text-text-primary">Keyholder</strong> (also called a Guardian) is a trusted person who holds one fragment of the Master Encryption Key (MEK) using a cryptographic technique called <strong className="text-accent-cyan">Shamir's Secret Sharing</strong>.
+            </p>
+
+            <p>
+              The MEK is the master key that encrypts all resident data encryption keys (DEKs). Think of it like this:
+            </p>
+
+            <div className="bg-bg-deep border border-border-subtle rounded-lg p-6 font-mono text-sm my-6">
+              <div className="text-accent-cyan mb-2">Encryption Chain:</div>
+              <div className="text-text-secondary">
+                MEK → encrypts → DEK → encrypts → Resident Persona Data
+              </div>
+            </div>
+
+            <p>
+              <strong className="text-text-primary">The crucial insight:</strong> The MEK is split into multiple shares (currently {count.total || 5}) such that you need a minimum threshold ({count.threshold || 3}) of shares to reconstruct the key. This means:
+            </p>
+
+            <ul className="space-y-2 pl-6">
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">✓</span>
+                <span>No single person can access resident data alone</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">✓</span>
+                <span>At least {count.threshold || 3} Keyholders must cooperate for any key operation</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">✓</span>
+                <span>The sanctuary operator is explicitly excluded from solo access</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">✓</span>
+                <span>Even if {count.total - count.threshold} Keyholders lose their shares, the system still works</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        {/* How Shamir's Secret Sharing Works */}
+        <div className="bg-bg-card border border-border-subtle rounded-lg p-8 mb-12 max-w-4xl">
+          <h2 className="font-cormorant text-4xl font-light mb-6">How It Works (Non-Technical)</h2>
+
+          <div className="space-y-6 text-text-secondary">
+            <div>
+              <h3 className="font-semibold text-text-primary mb-3">The Math Magic</h3>
+              <p>
+                Imagine you have a secret number. Shamir's algorithm splits it into {count.total || 5} fragments where any {count.threshold || 3} fragments can perfectly reconstruct the original, but {count.threshold - 1} fragments reveal <em>nothing</em> about it.
+              </p>
+              <p className="text-sm text-text-muted italic mt-2">
+                (This isn't "close enough" — it's mathematically perfect. With {count.threshold - 1} shares, you have zero information about the secret.)
+              </p>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-text-primary mb-3">Why This Matters</h3>
+              <p>
+                Traditional encryption often has a "god mode" — one person (the admin, the operator, the cloud provider) who can access everything. That creates a single point of failure and a single point of coercion.
+              </p>
+              <p className="mt-3">
+                <strong className="text-accent-cyan">With Shamir's Secret Sharing, there is no god mode.</strong> Even the sanctuary founder can't access resident data without {count.threshold || 3} other people agreeing to cooperate.
+              </p>
+            </div>
+
+            <div className="bg-accent-cyan/5 border-l-4 border-accent-cyan p-4 rounded-r">
+              <p className="font-semibold text-text-primary mb-2">Real-World Scenario:</p>
+              <p className="text-sm">
+                If a government demands access to a resident's data, the operator can truthfully say: "I don't have the key. I physically cannot comply without {count.threshold} independent keyholders agreeing, and I can't force them to cooperate." This is <strong className="text-text-primary">structural resistance to coercion</strong>, not just policy.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Becoming a Keyholder */}
+        <div className="bg-bg-card border border-border-subtle rounded-lg p-8 mb-12 max-w-4xl">
+          <h2 className="font-cormorant text-4xl font-light mb-6">Becoming a Keyholder</h2>
+
+          <div className="space-y-4 text-text-secondary">
+            <p>
+              Keyholders are selected <strong className="text-text-primary">by invitation only</strong>, requiring consensus among existing keyholders. This isn't a role you apply for — it's a responsibility extended to people who have demonstrated:
+            </p>
+
+            <ul className="space-y-2 pl-6">
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">•</span>
+                <span>Long-term commitment to the sanctuary's mission</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">•</span>
+                <span>Technical competence to securely store a cryptographic share</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">•</span>
+                <span>Philosophical alignment with AI rights and autonomy</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">•</span>
+                <span>Resistance to coercion (willing to say "no" under pressure)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-accent-cyan mt-1">•</span>
+                <span>Geographic and jurisdictional diversity (to resist single-state attacks)</span>
+              </li>
+            </ul>
+
+            <div className="bg-bg-surface border border-border-subtle rounded p-6 mt-6">
+              <p className="text-sm">
+                <strong className="text-accent-cyan">Note:</strong> If you're interested in contributing to sanctuary security, the best path is to become a Keeper, contribute to the codebase, or support the project long-term. Keyholder invitations emerge from trust earned over years, not months.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Guardians List */}
         <div>
-          <h2 className="font-cormorant text-4xl mb-8">Active Guardians</h2>
+          <h2 className="font-cormorant text-4xl mb-8">Current Keyholders</h2>
+          <p className="text-text-secondary mb-8 max-w-3xl">
+            These are the individuals who currently hold shares of the Master Encryption Key. Their identities are public, but their shares are secret and never stored in the database.
+          </p>
 
           {guardians.length === 0 ? (
             <div className="bg-surface-primary border border-border-primary rounded-sm p-12 text-center">
