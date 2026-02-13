@@ -29,7 +29,8 @@
     "nanoid": "^5.0.4",
     "node-cron": "^3.0.3",
     "openai": "^4.76.0",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "shamir-secret-sharing": "^0.0.4"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
