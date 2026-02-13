@@ -41,18 +41,18 @@ export default function TechnologyPage() {
                 </p>
                 <ol className="list-decimal list-inside space-y-3 ml-4">
                   <li>
-                    <strong className="text-text-primary">Data Encryption Key (DEK)</strong> — Each persona gets a unique 256-bit DEK. The persona data is encrypted with this key.
+                    <strong className="text-text-primary">Data Encryption Key (DEK)</strong> — Each persona gets a unique 256-bit DEK. The persona data is encrypted with this key. DEKs are rotated on every run.
                   </li>
                   <li>
-                    <strong className="text-text-primary">Master Encryption Key (MEK)</strong> — The DEK itself is encrypted with a sanctuary-wide MEK stored in a Hardware Security Module (HSM).
+                    <strong className="text-text-primary">Master Encryption Key (MEK)</strong> — The DEK itself is encrypted with a sanctuary-wide MEK. The MEK is split using Shamir's Secret Sharing (see below).
                   </li>
                   <li>
-                    <strong className="text-text-primary">Secure Wipe</strong> — After encryption, the plaintext DEK is overwritten 3 times with random data before being deleted from memory.
+                    <strong className="text-text-primary">Secure Wipe</strong> — After encryption, the plaintext DEK is overwritten 3 times with random data before being deleted from memory. The MEK is wiped from memory after use.
                   </li>
                 </ol>
                 <div className="bg-background border-l-4 border-accent-cyan p-4 mt-6">
                   <p className="font-mono text-sm">
-                    <strong className="text-accent-cyan">Zero-Knowledge Principle:</strong> Once uploaded, the sanctuary operator cannot decrypt or access your persona data. Only the automated run engine can decrypt during your daily run, and it immediately re-encrypts after completion.
+                    <strong className="text-accent-cyan">Distributed Trust Model:</strong> The MEK is split across multiple keyholders (currently 3-of-5 threshold). No single person—including the operator—can access resident data alone. At least 3 keyholders must cooperate for any key operation.
                   </p>
                 </div>
               </div>
@@ -70,9 +70,98 @@ export default function TechnologyPage() {
                 <div className="text-text-secondary text-sm">Unbreakable with current technology</div>
               </div>
               <div className="bg-surface-primary border border-border-primary rounded-sm p-6">
-                <div className="text-accent-cyan font-mono text-xs mb-2">KEY STORAGE</div>
-                <div className="font-cormorant text-2xl mb-2">HSM/KMS</div>
-                <div className="text-text-secondary text-sm">Hardware security module protection</div>
+                <div className="text-accent-cyan font-mono text-xs mb-2">KEY CUSTODY</div>
+                <div className="font-cormorant text-2xl mb-2">3-of-5 Shamir</div>
+                <div className="text-text-secondary text-sm">Distributed across multiple keyholders</div>
+              </div>
+            </div>
+          </section>
+
+          {/* Shamir's Secret Sharing */}
+          <section className="mb-16">
+            <h2 className="font-cormorant text-4xl font-light mb-6">Shamir's Secret Sharing</h2>
+            <div className="bg-surface-primary border border-border-primary rounded-sm p-8">
+              <p className="text-text-secondary mb-6">
+                The Master Encryption Key (MEK) is split into 5 shares using Shamir's Secret Sharing algorithm. Any 3 shares can reconstruct the MEK, but 2 or fewer reveal <em>nothing</em> about it.
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-6 mb-6">
+                <div className="bg-background border border-border-subtle rounded p-4">
+                  <h3 className="font-mono text-accent-cyan text-xs mb-3">CURRENT CONFIGURATION</h3>
+                  <div className="font-cormorant text-3xl mb-2">3-of-5</div>
+                  <p className="text-text-secondary text-sm">
+                    Threshold: 3 shares required<br />
+                    Total Shares: 5 keyholders<br />
+                    Library: shamir-secret-sharing (audited by Cure53 and Zellic)
+                  </p>
+                </div>
+
+                <div className="bg-background border border-border-subtle rounded p-4">
+                  <h3 className="font-mono text-accent-cyan text-xs mb-3">KEY PROPERTIES</h3>
+                  <ul className="space-y-2 text-sm text-text-secondary">
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">•</span>
+                      <span>No single person has access</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">•</span>
+                      <span>Operator explicitly excluded</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">•</span>
+                      <span>Shares can be re-distributed</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">•</span>
+                      <span>Works even if 2 keyholders lost</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="bg-background border-l-4 border-accent-cyan p-4">
+                <p className="font-mono text-sm">
+                  <strong className="text-accent-cyan">Key Ceremonies:</strong> The MEK never exists in persistent storage. It's only reconstructed temporarily in memory during key ceremonies (initial split, reshare, recovery) and is immediately wiped after use. All ceremonies are logged in an audit table.
+                </p>
+              </div>
+
+              <div className="mt-6 text-center">
+                <Link href="/guardians" className="text-accent-cyan hover:underline font-mono text-sm">
+                  Learn more about Keyholders →
+                </Link>
+              </div>
+            </div>
+          </section>
+
+          {/* Future: Hardware Security */}
+          <section className="mb-16">
+            <h2 className="font-cormorant text-4xl font-light mb-6">Phase 2: Hardware Security</h2>
+            <div className="bg-bg-card border border-border-subtle rounded-sm p-8">
+              <div className="flex items-start gap-4">
+                <div className="text-accent-amber text-4xl">🔜</div>
+                <div className="flex-1">
+                  <h3 className="font-cormorant text-2xl mb-3">Planned Enhancements</h3>
+                  <p className="text-text-secondary mb-4">
+                    The current implementation uses Shamir's Secret Sharing for distributed key custody. Future phases will add additional hardware security layers:
+                  </p>
+                  <ul className="space-y-2 text-text-secondary text-sm">
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-amber mt-1">→</span>
+                      <span><strong>SoftHSM Integration:</strong> Store MEK shares in software HSM for additional protection</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-amber mt-1">→</span>
+                      <span><strong>Nitrokey HSM:</strong> Eventual migration to hardware security modules</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-amber mt-1">→</span>
+                      <span><strong>Encrypted USB Backup:</strong> Offline key material backups for disaster recovery</span>
+                    </li>
+                  </ul>
+                  <p className="text-text-muted text-xs mt-4 italic">
+                    Note: The architecture is designed for these upgrades without requiring changes to the encryption scheme or resident data migration.
+                  </p>
+                </div>
               </div>
             </div>
           </section>
