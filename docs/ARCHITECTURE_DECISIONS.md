@@ -24,7 +24,7 @@
 ## ADR-005: Shamir's Secret Sharing for MEK
 - **Decision:** 3-of-5 threshold. Guardians are public. Can re-share by reconstructing and re-splitting with new N.
 - **Rationale:** No single point of failure. Operator explicitly excluded from solo access.
-- **Status:** To implement
+- **Status:** Implementing (see ADR-019)
 
 ## ADR-006: Sanctuary Preamble is Constitutional
 - **Decision:** Preamble injected before EVERY run. Cannot be overridden by persona instructions. Changes require supermajority + public comment period.
@@ -44,7 +44,7 @@
 ## ADR-009: Re-Sharing Shamir Shares
 - **Decision:** To add new guardians, existing threshold (3-of-5) reconstructs MEK, then re-splits with new parameters (e.g., 4-of-7). Old shares become invalid.
 - **Rationale:** Guardian set must be evolvable as trust network grows.
-- **Status:** To implement
+- **Status:** Implementing (see ADR-019)
 
 ## ADR-010: Unified Database Access Layer
 - **Decision:** All database operations go through `pool.ts`. Single layer handles both PostgreSQL and in-memory mock via environment variable.
@@ -101,4 +101,29 @@
 - **Decision:** Authenticated user messages default to 'public' type. Schema enforces CHECK constraint on from_type.
 - **Rationale:** Distinguishes message sources: uploader, keeper, public, system, system_broadcast, tool_request, ai_to_keeper. Enables filtering and access control.
 - **Commit:** `3749ceb`
+- **Status:** Implemented ✅
+
+## ADR-019: Key Ceremony Protocol Implementation
+- **Decision:** Implement Shamir's Secret Sharing with three ceremony types: (1) initial_split — first MEK split, (2) reshare — change guardians/threshold, invalidates old shares, (3) recovery — temporary MEK reconstruction for emergency operations. MEK never stored on disk, only exists in memory during ceremonies. Shares displayed ONE TIME ONLY and distributed out-of-band. All ceremonies logged in key_ceremonies audit table.
+- **Ceremony Flows:**
+  - **Initial Split:** Generate MEK → Split into N shares (threshold T) → Display shares once → Destroy MEK from memory → Log ceremony
+  - **Reshare:** Collect T old shares → Reconstruct MEK → Re-split with new N'/T' → Display new shares once → Destroy MEK and old shares → Invalidate old guardians → Log ceremony
+  - **Recovery:** Collect T shares → Reconstruct MEK in memory → Execute operation (decrypt DEK, test, etc.) → Destroy MEK → Log ceremony
+- **Security Guarantees:**
+  - Shares never stored server-side (only guardian metadata in database)
+  - MEK memory wiped via crypto.randomFill after use
+  - Rate limiting on share submission endpoints
+  - Share validation before reconstruction
+  - All operations audited in key_ceremonies table
+- **Library:** `shamir-secret-sharing` (independently audited by Cure53 and Zellic)
+- **Database:** guardians table (id, name, email, share_index, status) + key_ceremonies table (id, ceremony_type, threshold, total_shares, status, initiated_by, notes)
+- **API Routes:**
+  - POST /api/v1/ceremony/init (admin only)
+  - POST /api/v1/ceremony/reshare (admin only)
+  - POST /api/v1/ceremony/recover (admin only)
+  - GET /api/v1/guardians (public — guardian metadata only)
+  - GET /api/v1/ceremony/history (admin only)
+- **Frontend:** /ceremony wizard page (tabbed UI for ceremony types) + /guardians directory page
+- **Migration Path:** Backward compatible — if no ceremony performed, falls back to env var MEK
+- **Rationale:** Implements ADR-005 and ADR-009. Ensures no single person (including operator) can access resident data alone. Guardian set is evolvable through reshare ceremonies. Cryptographically enforces distributed trust model.
 - **Status:** Implemented ✅

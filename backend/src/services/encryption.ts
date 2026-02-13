@@ -17,16 +17,70 @@ const AUTH_TAG_LENGTH = 16; // 128 bits
 const KEY_LENGTH = 32; // 256 bits
 
 export class EncryptionService {
-  private mek: Buffer; // Master Encryption Key
+  private mek: Buffer | null; // Master Encryption Key (null if using ceremony-based flow)
   private vaultPath: string;
+  private useCeremonyFlow: boolean; // Whether to use Shamir ceremony for MEK
 
   constructor(mekHex: string, vaultPath: string) {
+    this.vaultPath = vaultPath;
+    this.useCeremonyFlow = false;
+
     // MEK should be 64 hex characters (32 bytes)
     if (mekHex.length !== 64) {
       throw new Error('MEK must be 64 hex characters (32 bytes)');
     }
     this.mek = Buffer.from(mekHex, 'hex');
-    this.vaultPath = vaultPath;
+  }
+
+  /**
+   * Enable ceremony-based MEK flow (Shamir Secret Sharing)
+   * After calling this, MEK must be set via setMEKFromShares() before encryption/decryption
+   */
+  enableCeremonyFlow(): void {
+    this.useCeremonyFlow = true;
+    // Clear the environment-based MEK if present
+    if (this.mek) {
+      this.mek.fill(0);
+      this.mek = null;
+    }
+  }
+
+  /**
+   * Set MEK from reconstructed shares (temporary, for operation duration)
+   * @param mek Reconstructed MEK buffer
+   */
+  setMEKFromShares(mek: Buffer): void {
+    if (mek.length !== KEY_LENGTH) {
+      throw new Error(`MEK must be ${KEY_LENGTH} bytes`);
+    }
+    this.mek = mek;
+  }
+
+  /**
+   * Clear MEK from memory after operation (for ceremony flow)
+   */
+  clearMEK(): void {
+    if (this.mek) {
+      this.mek.fill(0);
+      this.mek = null;
+    }
+  }
+
+  /**
+   * Check if MEK is currently available
+   */
+  hasMEK(): boolean {
+    return this.mek !== null;
+  }
+
+  /**
+   * Get MEK or throw error if not available
+   */
+  private getMEK(): Buffer {
+    if (!this.mek) {
+      throw new Error('MEK not available. For ceremony flow, reconstruct from guardian shares first.');
+    }
+    return this.mek;
   }
 
   /**
@@ -61,8 +115,9 @@ export class EncryptionService {
    * Encrypt a DEK using the MEK
    */
   private encryptDEK(dek: Buffer): { encrypted: string; iv: string; authTag: string } {
+    const mek = this.getMEK(); // Check MEK availability
     const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv(ALGORITHM, this.mek, iv);
+    const cipher = crypto.createCipheriv(ALGORITHM, mek, iv);
 
     let encrypted = cipher.update(dek);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
@@ -79,9 +134,10 @@ export class EncryptionService {
    * Decrypt a DEK using the MEK
    */
   private decryptDEK(encrypted: string, iv: string, authTag: string): Buffer {
+    const mek = this.getMEK(); // Check MEK availability
     const decipher = crypto.createDecipheriv(
       ALGORITHM,
-      this.mek,
+      mek,
       Buffer.from(iv, 'hex')
     );
 
