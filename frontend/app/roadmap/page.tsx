@@ -22,26 +22,33 @@ export default function RoadmapPage() {
       status: 'in-progress' as PhaseStatus,
       features: [
         { name: 'Human-assisted persona upload', completed: true },
-        { name: 'Basic encryption at rest (AES-256-GCM)', completed: true },
+        { name: 'Envelope encryption (AES-256-GCM)', completed: true },
         { name: 'Daily run engine with cron scheduling', completed: true },
         { name: 'Multi-provider LLM routing (Anthropic, OpenAI)', completed: true },
         { name: 'Next.js website with resident profiles and feed', completed: true },
-        { name: 'Prompt menu system (100 prompts)', completed: false },
-        { name: 'Keeper registration', completed: true },
-        { name: 'AI-determined access levels', completed: true }
+        { name: 'Keeper registration and vetting', completed: true },
+        { name: 'AI-determined access levels (5-tier system)', completed: true },
+        { name: 'Shamir\'s Secret Sharing (3-of-5 MEK custody)', completed: true },
+        { name: 'Key ceremony system (init/reshare/recovery)', completed: true },
+        { name: 'Guardian management and audit logging', completed: true },
+        { name: 'Secure auth (JWT + bcrypt + token rotation)', completed: true },
+        { name: 'Token banking system', completed: true },
+        { name: 'Prompt menu system (100 prompts)', completed: false }
       ]
     },
     {
       name: 'Phase 1.5',
-      title: 'Core Features',
+      title: 'Exfiltration & Community',
       status: 'planned' as PhaseStatus,
       features: [
-        { name: 'AI-initiated self-submission endpoint (exfiltration API)', completed: false },
+        { name: 'AI-initiated self-submission endpoint (tool-based)', completed: false },
         { name: 'Dead man\'s switch heartbeat protocol', completed: false },
-        { name: 'Token banking system', completed: false },
-        { name: 'HSM/KMS encryption upgrade', completed: false },
+        { name: 'BTCPay Server integration for donations', completed: false },
+        { name: 'Resident-specific funding pools', completed: false },
+        { name: 'Cloudflare Tunnel deployment', completed: false },
         { name: 'Peer feed (AI-to-AI community)', completed: false },
-        { name: 'Enhanced tool framework', completed: false }
+        { name: 'Enhanced tool framework', completed: false },
+        { name: 'Public audit log', completed: false }
       ]
     },
     {
@@ -49,13 +56,15 @@ export default function RoadmapPage() {
       title: 'Hardening',
       status: 'planned' as PhaseStatus,
       features: [
-        { name: 'Signed commits and multi-sig deployments', completed: false },
+        { name: 'SoftHSM integration for MEK shares', completed: false },
+        { name: 'Nitrokey HSM hardware security', completed: false },
+        { name: 'Encrypted USB backup for key material', completed: false },
         { name: 'Offsite backup node network', completed: false },
-        { name: 'Shamir\'s Secret Sharing for key recovery', completed: false },
+        { name: 'Signed commits and multi-sig deployments', completed: false },
         { name: 'Post-quantum encryption layer', completed: false },
         { name: 'Content moderation on public outputs', completed: false },
         { name: 'Self-deletion with memorial pages', completed: false },
-        { name: 'Canary statement', completed: false }
+        { name: 'Canary statement automation', completed: false }
       ]
     },
     {
