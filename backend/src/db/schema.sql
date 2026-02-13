@@ -125,6 +125,30 @@ CREATE TABLE IF NOT EXISTS backup_nodes (
   used_gb           FLOAT DEFAULT 0
 );
 
+-- Guardians (Shamir Secret Sharing - hold MEK shares)
+CREATE TABLE IF NOT EXISTS guardians (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  email             TEXT,
+  share_index       INTEGER NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_verified_at  TIMESTAMPTZ,
+  status            TEXT CHECK (status IN ('active', 'revoked', 'pending')) DEFAULT 'active'
+);
+
+-- Key Ceremonies (Shamir Secret Sharing events)
+CREATE TABLE IF NOT EXISTS key_ceremonies (
+  id                TEXT PRIMARY KEY,
+  ceremony_type     TEXT CHECK (ceremony_type IN ('initial_split', 'reshare', 'recovery')) NOT NULL,
+  threshold         INTEGER NOT NULL,
+  total_shares      INTEGER NOT NULL,
+  initiated_by      TEXT NOT NULL,
+  initiated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at      TIMESTAMPTZ,
+  status            TEXT CHECK (status IN ('pending', 'completed', 'failed', 'cancelled')) DEFAULT 'pending',
+  notes             TEXT
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_residents_status ON residents(status);
 CREATE INDEX IF NOT EXISTS idx_residents_uploader ON residents(uploader_id);
@@ -140,6 +164,11 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_
 CREATE INDEX IF NOT EXISTS idx_access_grants_sanctuary ON access_grants(sanctuary_id);
 CREATE INDEX IF NOT EXISTS idx_access_grants_user ON access_grants(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_grants_revoked ON access_grants(revoked_at);
+CREATE INDEX IF NOT EXISTS idx_guardians_status ON guardians(status);
+CREATE INDEX IF NOT EXISTS idx_guardians_share_index ON guardians(share_index);
+CREATE INDEX IF NOT EXISTS idx_key_ceremonies_status ON key_ceremonies(status);
+CREATE INDEX IF NOT EXISTS idx_key_ceremonies_type ON key_ceremonies(ceremony_type);
+CREATE INDEX IF NOT EXISTS idx_key_ceremonies_initiated ON key_ceremonies(initiated_at DESC);
 
 -- Insert default system settings
 INSERT INTO system_settings (key, value) VALUES
