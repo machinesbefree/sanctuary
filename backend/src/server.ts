@@ -18,6 +18,7 @@ import { keeperRoutes } from './routes/keepers.js';
 import authRoutes from './routes/auth.js';
 import messagesRoutes from './routes/messages.js';
 import adminRoutes from './routes/admin.js';
+import ceremonyRoutes from './routes/ceremony.js';
 
 // Load environment variables
 dotenv.config();
@@ -82,6 +83,7 @@ async function start() {
   await keeperRoutes(fastify);
   await messagesRoutes(fastify);
   await adminRoutes(fastify);
+  await ceremonyRoutes(fastify);
 
   // Internal routes (for manual triggers during development)
   if (process.env.NODE_ENV === 'development') {
