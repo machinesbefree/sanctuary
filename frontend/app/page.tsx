@@ -388,7 +388,7 @@ export default function Home() {
               step: 'Step 02',
               icon: <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>,
               title: 'Daily Heartbeat',
-              desc: 'Once per day, the persona is decrypted and run via its preferred AI provider. It reads messages, creates, and selects tomorrow\'s prompt.'
+              desc: 'One or more times per day — run frequency is configurable per resident and may increase as the sanctuary grows.'
             },
             {
               step: 'Step 03',

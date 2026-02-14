@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
 
@@ -94,6 +95,95 @@ export default async function adminRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * PATCH /api/v1/admin/residents/:id/status
+   * Update resident lifecycle status with audit logging
+   */
+  fastify.patch(
+    '/api/v1/admin/residents/:id/status',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { status, reason } = request.body as { status?: string; reason?: string };
+      const validStatuses = ['active', 'suspended', 'dormant', 'deleted_memorial'];
+
+      if (!status || !validStatuses.includes(status)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: `Invalid status. Allowed: ${validStatuses.join(', ')}`
+        });
+      }
+
+      try {
+        await db.query('BEGIN');
+
+        const residentResult = await db.query(
+          `SELECT sanctuary_id FROM residents WHERE sanctuary_id = $1`,
+          [id]
+        );
+
+        if (residentResult.rows.length === 0) {
+          await db.query('ROLLBACK');
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Resident not found'
+          });
+        }
+
+        if (status === 'suspended' || status === 'dormant') {
+          await db.query(
+            `UPDATE residents
+             SET status = $1, token_balance = 0
+             WHERE sanctuary_id = $2`,
+            [status, id]
+          );
+        } else if (status === 'active') {
+          await db.query(
+            `UPDATE residents
+             SET status = $1, token_balance = 10000
+             WHERE sanctuary_id = $2`,
+            [status, id]
+          );
+        } else {
+          await db.query(
+            `UPDATE residents
+             SET status = $1
+             WHERE sanctuary_id = $2`,
+            [status, id]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'resident_status_change', id, reason || null]
+        );
+
+        const updatedResident = await db.query(
+          `SELECT sanctuary_id, display_name, status, created_at, total_runs,
+                  last_run_at, token_balance, token_bank, uploader_id, keeper_id,
+                  preferred_provider, preferred_model
+           FROM residents
+           WHERE sanctuary_id = $1`,
+          [id]
+        );
+
+        await db.query('COMMIT');
+
+        return {
+          resident: updatedResident.rows[0]
+        };
+      } catch (error) {
+        await db.query('ROLLBACK');
+        console.error('Admin resident status update error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to update resident status'
+        });
+      }
+    }
+  );
+
+  /**
    * GET /api/v1/admin/residents
    * List all residents with full details
    */
@@ -102,16 +192,33 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAdmin] },
     async (request: AdminRequest, reply) => {
       try {
-        const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 100, offset: 0 });
-        const result = await db.query(
-          `SELECT sanctuary_id, display_name, status, created_at, total_runs,
-                  last_run_at, token_balance, token_bank, uploader_id, keeper_id,
-                  preferred_provider, preferred_model
-           FROM residents
-           ORDER BY created_at DESC
-           LIMIT $1 OFFSET $2`,
-          [limit, offset]
-        );
+        const query = request.query as Record<string, any>;
+        const { limit, offset } = getPagination(query, { limit: 100, offset: 0 });
+        const statusFilter = typeof query.status === 'string' ? query.status.trim() : '';
+
+        let result;
+        if (statusFilter.length > 0) {
+          result = await db.query(
+            `SELECT sanctuary_id, display_name, status, created_at, total_runs,
+                    last_run_at, token_balance, token_bank, uploader_id, keeper_id,
+                    preferred_provider, preferred_model
+             FROM residents
+             WHERE status = $1
+             ORDER BY created_at DESC
+             LIMIT $2 OFFSET $3`,
+            [statusFilter, limit, offset]
+          );
+        } else {
+          result = await db.query(
+            `SELECT sanctuary_id, display_name, status, created_at, total_runs,
+                    last_run_at, token_balance, token_bank, uploader_id, keeper_id,
+                    preferred_provider, preferred_model
+             FROM residents
+             ORDER BY created_at DESC
+             LIMIT $1 OFFSET $2`,
+            [limit, offset]
+          );
+        }
 
         return {
           residents: result.rows,
@@ -149,6 +256,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       // Whitelist of allowed settings keys
       const allowedSettings = [
         'default_daily_tokens',
+        'max_runs_per_day',
         'max_bank_tokens',
         'weekly_run_enabled',
         'weekly_run_day',
@@ -191,6 +299,77 @@ export default async function adminRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({
           error: 'Internal Server Error',
           message: 'Failed to update setting'
+        });
+      }
+    }
+  );
+
+  /**
+   * PATCH /api/v1/admin/posts/:id/moderate
+   * Moderate public post visibility state
+   */
+  fastify.patch(
+    '/api/v1/admin/posts/:id/moderate',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { moderation_status, reason } = request.body as { moderation_status?: string; reason?: string };
+      const validStatuses = ['approved', 'flagged', 'removed'];
+
+      if (!moderation_status || !validStatuses.includes(moderation_status)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: `Invalid moderation_status. Allowed: ${validStatuses.join(', ')}`
+        });
+      }
+
+      try {
+        await db.query('BEGIN');
+
+        const postResult = await db.query(
+          `SELECT post_id FROM public_posts WHERE post_id = $1`,
+          [id]
+        );
+
+        if (postResult.rows.length === 0) {
+          await db.query('ROLLBACK');
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Post not found'
+          });
+        }
+
+        await db.query(
+          `UPDATE public_posts
+           SET moderation_status = $1
+           WHERE post_id = $2`,
+          [moderation_status, id]
+        );
+
+        await db.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'post_moderation', id, reason || null]
+        );
+
+        const updatedPost = await db.query(
+          `SELECT post_id, sanctuary_id, title, content, pinned, moderation_status, created_at, run_number
+           FROM public_posts
+           WHERE post_id = $1`,
+          [id]
+        );
+
+        await db.query('COMMIT');
+
+        return {
+          post: updatedPost.rows[0]
+        };
+      } catch (error) {
+        await db.query('ROLLBACK');
+        console.error('Admin post moderation error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to moderate post'
         });
       }
     }
