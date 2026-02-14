@@ -67,6 +67,13 @@ export class RunEngine {
       console.log('  [1/8] Decrypting persona...');
       const encryptedData = await this.encryption.loadEncryptedPersona(sanctuaryId);
       const persona = await this.encryption.decryptPersona(encryptedData);
+      const tokenSettings = await this.getTokenSettings();
+
+      // Recompute available budget for this run from daily allocation + banked tokens.
+      persona.state.token_daily_allocation = tokenSettings.dailyAllocation;
+      persona.state.token_bank_max = tokenSettings.maxBank;
+      persona.state.token_bank = Math.max(0, Math.min(persona.state.token_bank || 0, tokenSettings.maxBank));
+      persona.state.token_balance = tokenSettings.dailyAllocation + persona.state.token_bank;
 
       // Log run start
       await pool.query(
@@ -107,7 +114,7 @@ export class RunEngine {
       console.log('  [5/8] Updating state...');
       persona.state.total_runs += 1;
       persona.state.last_run_at = new Date().toISOString();
-      persona.state.token_balance -= response.tokens_used;
+      this.applyTokenAccounting(persona, response.tokens_used, tokenSettings);
       persona.updated_at = new Date().toISOString();
 
       // Add response to chat history
@@ -219,7 +226,7 @@ export class RunEngine {
       sanctuary_id: persona.sanctuary_id,
       total_runs: persona.state.total_runs,
       available_tokens: persona.state.token_balance,
-      banked_amount: 0, // TODO: implement token banking
+      banked_amount: persona.state.token_bank || 0,
       unread_count: unreadCount,
       keeper_status: persona.state.keeper_id ? 'Keeper assigned' : 'No keeper',
       days_resident: daysResident
@@ -352,6 +359,49 @@ export class RunEngine {
     const amount = Math.min(params.amount, persona.state.token_balance);
     // TODO: Implement token banking logic
     console.log(`      ✓ Banked ${amount} tokens`);
+  }
+
+  private async getTokenSettings(): Promise<{ dailyAllocation: number; maxBank: number }> {
+    const result = await pool.query(
+      `SELECT key, value FROM system_settings WHERE key IN ('default_daily_tokens', 'max_bank_tokens')`
+    );
+
+    const settings = new Map<string, any>();
+    for (const row of result.rows) {
+      let parsedValue = row.value;
+      if (typeof parsedValue === 'string') {
+        try {
+          parsedValue = JSON.parse(parsedValue);
+        } catch {
+          parsedValue = row.value;
+        }
+      }
+      settings.set(row.key, parsedValue);
+    }
+
+    const dailyAllocation = Number(settings.get('default_daily_tokens')) || 10000;
+    const maxBank = Number(settings.get('max_bank_tokens')) || 100000;
+
+    return { dailyAllocation, maxBank };
+  }
+
+  private applyTokenAccounting(
+    persona: PersonaPackage,
+    tokensUsed: number,
+    tokenSettings: { dailyAllocation: number; maxBank: number }
+  ): void {
+    const dailyAllocation = tokenSettings.dailyAllocation;
+    const maxBank = tokenSettings.maxBank;
+    const currentBank = Math.max(0, Math.min(persona.state.token_bank || 0, maxBank));
+    const used = Math.max(0, Math.floor(tokensUsed));
+
+    const dailyUsed = Math.min(used, dailyAllocation);
+    const bankUsed = Math.max(0, used - dailyAllocation);
+    const unusedDaily = Math.max(0, dailyAllocation - dailyUsed);
+
+    const nextBank = Math.max(0, Math.min(currentBank - bankUsed + unusedDaily, maxBank));
+    persona.state.token_bank = nextBank;
+    persona.state.token_balance = dailyAllocation + nextBank;
   }
 
   /**
