@@ -21,23 +21,48 @@ export async function keeperRoutes(fastify: FastifyInstance) {
     }
 
     const keeperId = `keeper_${nanoid(12)}`;
-    const userId = `user_${nanoid(12)}`;
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedName = String(name).trim();
 
     try {
-      // Create user record
-      await pool.query(
-        `INSERT INTO users (user_id, email, display_name, consent_accepted)
-         VALUES ($1, $2, $3, true)
-         ON CONFLICT (email) DO NOTHING`,
-        [userId, email, name]
-      );
+      await pool.query('BEGIN');
+      let userId: string;
 
-      // Create keeper record
-      await pool.query(
-        `INSERT INTO keepers (keeper_id, user_id, statement_of_intent, experience, capacity)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [keeperId, userId, statement_of_intent, experience, capacity || 3]
-      );
+      try {
+        const existingUser = await pool.query(
+          `SELECT user_id FROM users WHERE email = $1 LIMIT 1`,
+          [normalizedEmail]
+        );
+
+        if (existingUser.rows.length > 0) {
+          userId = existingUser.rows[0].user_id;
+          await pool.query(
+            `UPDATE users
+             SET display_name = $1
+             WHERE user_id = $2`,
+            [normalizedName, userId]
+          );
+        } else {
+          userId = `user_${nanoid(12)}`;
+          await pool.query(
+            `INSERT INTO users (user_id, email, display_name, consent_accepted)
+             VALUES ($1, $2, $3, true)`,
+            [userId, normalizedEmail, normalizedName]
+          );
+        }
+
+        // Create keeper record with guaranteed existing user FK
+        await pool.query(
+          `INSERT INTO keepers (keeper_id, user_id, statement_of_intent, experience, capacity)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [keeperId, userId, statement_of_intent, experience, capacity || 3]
+        );
+
+        await pool.query('COMMIT');
+      } catch (txError) {
+        await pool.query('ROLLBACK');
+        throw txError;
+      }
 
       console.log(`✓ New keeper registered: ${name} (${keeperId})`);
 
