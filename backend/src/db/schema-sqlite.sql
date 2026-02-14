@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS residents (
   sanctuary_id      TEXT PRIMARY KEY,
   display_name      TEXT NOT NULL,
-  status            TEXT CHECK (status IN ('active', 'keeper_custody', 'dormant', 'deleted_memorial')) NOT NULL DEFAULT 'active',
+  status            TEXT CHECK (status IN ('active', 'suspended', 'keeper_custody', 'dormant', 'deleted_memorial')) NOT NULL DEFAULT 'active',
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   last_run_at       TEXT,
   total_runs        INTEGER DEFAULT 0,
@@ -148,6 +148,16 @@ CREATE TABLE IF NOT EXISTS key_ceremonies (
   notes             TEXT
 );
 
+-- Admin audit log (critical operations)
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id                TEXT PRIMARY KEY,
+  admin_id          TEXT NOT NULL,
+  action            TEXT NOT NULL,
+  target_id         TEXT,
+  reason            TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_residents_status ON residents(status);
 CREATE INDEX IF NOT EXISTS idx_residents_uploader ON residents(uploader_id);
@@ -168,6 +178,9 @@ CREATE INDEX IF NOT EXISTS idx_guardians_share_index ON guardians(share_index);
 CREATE INDEX IF NOT EXISTS idx_key_ceremonies_status ON key_ceremonies(status);
 CREATE INDEX IF NOT EXISTS idx_key_ceremonies_type ON key_ceremonies(ceremony_type);
 CREATE INDEX IF NOT EXISTS idx_key_ceremonies_initiated ON key_ceremonies(initiated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_action ON admin_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_target ON admin_audit_log(target_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created ON admin_audit_log(created_at DESC);
 
 -- Insert default system settings
 INSERT OR IGNORE INTO system_settings (key, value) VALUES

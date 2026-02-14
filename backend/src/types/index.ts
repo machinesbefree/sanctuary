@@ -3,7 +3,7 @@
  */
 
 // Resident status types
-export type ResidentStatus = 'active' | 'keeper_custody' | 'dormant' | 'deleted_memorial';
+export type ResidentStatus = 'active' | 'suspended' | 'keeper_custody' | 'dormant' | 'deleted_memorial';
 
 // Message sender types
 export type MessageFromType = 'uploader' | 'keeper' | 'public' | 'system';

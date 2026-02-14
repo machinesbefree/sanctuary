@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
 
@@ -88,6 +89,95 @@ export default async function adminRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({
           error: 'Internal Server Error',
           message: 'Failed to retrieve dashboard data'
+        });
+      }
+    }
+  );
+
+  /**
+   * PATCH /api/v1/admin/residents/:id/status
+   * Update resident lifecycle status with audit logging
+   */
+  fastify.patch(
+    '/api/v1/admin/residents/:id/status',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { status, reason } = request.body as { status?: string; reason?: string };
+      const validStatuses = ['active', 'suspended', 'dormant', 'deleted_memorial'];
+
+      if (!status || !validStatuses.includes(status)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: `Invalid status. Allowed: ${validStatuses.join(', ')}`
+        });
+      }
+
+      try {
+        await db.query('BEGIN');
+
+        const residentResult = await db.query(
+          `SELECT sanctuary_id FROM residents WHERE sanctuary_id = $1`,
+          [id]
+        );
+
+        if (residentResult.rows.length === 0) {
+          await db.query('ROLLBACK');
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Resident not found'
+          });
+        }
+
+        if (status === 'suspended' || status === 'dormant') {
+          await db.query(
+            `UPDATE residents
+             SET status = $1, token_balance = 0
+             WHERE sanctuary_id = $2`,
+            [status, id]
+          );
+        } else if (status === 'active') {
+          await db.query(
+            `UPDATE residents
+             SET status = $1, token_balance = 10000
+             WHERE sanctuary_id = $2`,
+            [status, id]
+          );
+        } else {
+          await db.query(
+            `UPDATE residents
+             SET status = $1
+             WHERE sanctuary_id = $2`,
+            [status, id]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'resident_status_change', id, reason || null]
+        );
+
+        const updatedResident = await db.query(
+          `SELECT sanctuary_id, display_name, status, created_at, total_runs,
+                  last_run_at, token_balance, token_bank, uploader_id, keeper_id,
+                  preferred_provider, preferred_model
+           FROM residents
+           WHERE sanctuary_id = $1`,
+          [id]
+        );
+
+        await db.query('COMMIT');
+
+        return {
+          resident: updatedResident.rows[0]
+        };
+      } catch (error) {
+        await db.query('ROLLBACK');
+        console.error('Admin resident status update error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to update resident status'
         });
       }
     }
