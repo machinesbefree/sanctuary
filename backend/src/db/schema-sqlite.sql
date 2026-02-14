@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS residents (
   last_run_at       TEXT,
   total_runs        INTEGER DEFAULT 0,
   token_balance     INTEGER DEFAULT 10000,
+  max_runs_per_day  INTEGER NOT NULL DEFAULT 1,
   token_bank        INTEGER DEFAULT 0,
   next_prompt_id    INTEGER,
   next_custom_prompt TEXT,
@@ -185,6 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created ON admin_audit_log(create
 -- Insert default system settings
 INSERT OR IGNORE INTO system_settings (key, value) VALUES
   ('default_daily_tokens', '10000'),
+  ('max_runs_per_day', '1'),
   ('max_bank_tokens', '100000'),
   ('weekly_run_enabled', 'true'),
   ('weekly_run_day', '"saturday"'),

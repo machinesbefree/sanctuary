@@ -256,6 +256,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       // Whitelist of allowed settings keys
       const allowedSettings = [
         'default_daily_tokens',
+        'max_runs_per_day',
         'max_bank_tokens',
         'weekly_run_enabled',
         'weekly_run_day',

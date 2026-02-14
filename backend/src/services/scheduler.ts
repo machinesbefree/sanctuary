@@ -61,10 +61,18 @@ export class Scheduler {
     try {
       // Get all active residents
       const result = await pool.query(
-        `SELECT sanctuary_id, display_name, token_balance
-         FROM residents
-         WHERE status = 'active' AND token_balance >= 100
-         ORDER BY last_run_at ASC NULLS FIRST`
+        `SELECT r.sanctuary_id, r.display_name, r.token_balance, r.max_runs_per_day
+         FROM residents r
+         WHERE r.status = 'active'
+           AND r.token_balance >= 100
+           AND (
+             SELECT COUNT(*)
+             FROM run_log rl
+             WHERE rl.sanctuary_id = r.sanctuary_id
+               AND rl.started_at >= CURRENT_DATE
+               AND rl.started_at < CURRENT_DATE + INTERVAL '1 day'
+           ) < r.max_runs_per_day
+         ORDER BY r.last_run_at ASC NULLS FIRST`
       );
 
       const residents = result.rows;

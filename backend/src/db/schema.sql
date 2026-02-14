@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS residents (
   last_run_at       TIMESTAMPTZ,
   total_runs        INTEGER DEFAULT 0,
   token_balance     INTEGER DEFAULT 10000,
+  max_runs_per_day  INTEGER NOT NULL DEFAULT 1,
   token_bank        INTEGER DEFAULT 0,
   next_prompt_id    INTEGER,
   next_custom_prompt TEXT,
@@ -186,6 +187,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created ON admin_audit_log(create
 -- Insert default system settings
 INSERT INTO system_settings (key, value) VALUES
   ('default_daily_tokens', '10000'::jsonb),
+  ('max_runs_per_day', '1'::jsonb),
   ('max_bank_tokens', '100000'::jsonb),
   ('weekly_run_enabled', 'true'::jsonb),
   ('weekly_run_day', '"saturday"'::jsonb),
