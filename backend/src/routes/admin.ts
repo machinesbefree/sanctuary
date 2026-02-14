@@ -56,7 +56,8 @@ export default async function adminRoutes(fastify: FastifyInstance) {
         // Get recent run logs (if any)
         const recentRunsResult = await db.query(
           `SELECT COUNT(*) as today FROM run_log
-           WHERE DATE(started_at) = DATE('now')`
+           WHERE started_at >= CURRENT_DATE
+             AND started_at < CURRENT_DATE + INTERVAL '1 day'`
         );
 
         return {
