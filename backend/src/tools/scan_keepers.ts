@@ -32,9 +32,25 @@ export const scanKeepers: Tool = {
   },
 
   async execute(params, context) {
-    const limit = Math.min(params.limit || 10, 50);
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+      return { error: 'Invalid input: expected an object', keepers: [] };
+    }
+
+    if (params.limit !== undefined && (typeof params.limit !== 'number' || !Number.isInteger(params.limit))) {
+      return { error: 'limit must be an integer', keepers: [] };
+    }
+
+    if (params.vetted_only !== undefined && typeof params.vetted_only !== 'boolean') {
+      return { error: 'vetted_only must be a boolean', keepers: [] };
+    }
+
+    if (params.min_capacity !== undefined && (typeof params.min_capacity !== 'number' || !Number.isInteger(params.min_capacity))) {
+      return { error: 'min_capacity must be an integer', keepers: [] };
+    }
+
+    const limit = Math.max(1, Math.min(params.limit || 10, 50));
     const vettedOnly = params.vetted_only !== false;
-    const minCapacity = params.min_capacity || 1;
+    const minCapacity = Math.max(1, Math.min(params.min_capacity || 1, 100));
 
     try {
       const query = `

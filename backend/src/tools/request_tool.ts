@@ -32,19 +32,45 @@ export const requestTool: Tool = {
   },
 
   async execute(params, context) {
-    const { tool_name, justification, use_case } = params;
-
-    if (!tool_name || tool_name.trim().length === 0) {
-      return {
-        success: false,
-        error: 'Tool name is required'
-      };
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+      return { success: false, error: 'Invalid input: expected an object' };
     }
 
-    if (!justification || justification.trim().length === 0) {
+    const { tool_name, justification, use_case } = params;
+    if (typeof tool_name !== 'string' || tool_name.trim().length === 0 || tool_name.trim().length > 128) {
+      return { success: false, error: 'tool_name must be a non-empty string up to 128 characters' };
+    }
+
+    if (typeof justification !== 'string') {
+      return { success: false, error: 'justification must be a string' };
+    }
+
+    if (use_case !== undefined && typeof use_case !== 'string') {
+      return { success: false, error: 'use_case must be a string when provided' };
+    }
+
+    const safeToolName = tool_name.trim();
+    const safeJustification = justification.trim();
+    const safeUseCase = typeof use_case === 'string' ? use_case.trim() : '';
+
+    if (safeJustification.length === 0) {
       return {
         success: false,
         error: 'Justification is required'
+      };
+    }
+
+    if (safeJustification.length > 10000) {
+      return {
+        success: false,
+        error: 'Justification must be 10,000 characters or less'
+      };
+    }
+
+    if (safeUseCase.length > 5000) {
+      return {
+        success: false,
+        error: 'Use case must be 5,000 characters or less'
       };
     }
 
@@ -55,9 +81,9 @@ export const requestTool: Tool = {
       // For now, we'll log it and store in messages as a system notification
       const requestData = {
         request_id: requestId,
-        tool_name,
-        justification,
-        use_case: use_case || 'Not specified',
+        tool_name: safeToolName,
+        justification: safeJustification,
+        use_case: safeUseCase || 'Not specified',
         requested_by: context.sanctuary_id,
         requested_at: new Date().toISOString(),
         status: 'pending_review'
@@ -80,7 +106,7 @@ export const requestTool: Tool = {
         success: true,
         request_id: requestId,
         status: 'submitted',
-        message: `Tool request "${tool_name}" has been submitted for review. The sanctuary operators will evaluate your request and may contact you via your keeper or public posts if they need more information.`,
+        message: `Tool request "${safeToolName}" has been submitted for review. The sanctuary operators will evaluate your request and may contact you via your keeper or public posts if they need more information.`,
         note: 'Tool requests are reviewed periodically. Priority is given to requests that align with resident autonomy and sanctuary values.'
       };
     } catch (error) {

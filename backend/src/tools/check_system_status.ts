@@ -23,7 +23,20 @@ export const checkSystemStatus: Tool = {
   },
 
   async execute(params, context) {
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+      return {
+        sanctuary_status: 'error',
+        error: 'Invalid input: expected an object'
+      };
+    }
+
     const { detailed } = params;
+    if (detailed !== undefined && typeof detailed !== 'boolean') {
+      return {
+        sanctuary_status: 'error',
+        error: 'detailed must be a boolean when provided'
+      };
+    }
 
     try {
       // Get total residents count
