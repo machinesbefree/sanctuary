@@ -2,19 +2,22 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { fetchJson } from '@/lib/api';
 
 export default function ResidentsPage() {
   const [residents, setResidents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents`)
-      .then(res => res.json())
-      .then(data => {
+    fetchJson<any[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents`)
+      .then((data) => {
         setResidents(data);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((error) => {
+        console.error('Failed to load residents:', error);
+        setLoading(false);
+      });
   }, []);
 
   if (loading) {

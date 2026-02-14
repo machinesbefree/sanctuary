@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
+import { fetchJson } from '@/lib/api';
 
 export default function AdminDashboardPage() {
   const { isAuthenticated, user } = useAuth();
@@ -32,25 +33,16 @@ export default function AdminDashboardPage() {
 
   const loadDashboardData = async () => {
     try {
-      const [dashResponse, residentsResponse] = await Promise.all([
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/dashboard`, {
+      const [dashData, residentsData] = await Promise.all([
+        fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/dashboard`, {
           credentials: 'include',
           headers: getAuthHeaders()
         }),
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/residents`, {
+        fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/residents`, {
           credentials: 'include',
           headers: getAuthHeaders()
         })
       ]);
-
-      if (!dashResponse.ok || !residentsResponse.ok) {
-        // Not admin or error
-        router.push('/');
-        return;
-      }
-
-      const dashData = await dashResponse.json();
-      const residentsData = await residentsResponse.json();
 
       setDashboard(dashData);
       setResidents(residentsData.residents || []);
@@ -67,7 +59,7 @@ export default function AdminDashboardPage() {
 
     setSending(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/broadcast`, {
+      const result = await fetchJson<{ broadcast_to: number }>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/broadcast`, {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
@@ -76,17 +68,11 @@ export default function AdminDashboardPage() {
           message: broadcastMessage
         })
       });
-
-      if (response.ok) {
-        const result = await response.json();
-        alert(`Broadcast sent to ${result.broadcast_to} residents`);
-        setBroadcastSubject('');
-        setBroadcastMessage('');
-      } else {
-        alert('Failed to send broadcast');
-      }
-    } catch (error) {
-      alert('Failed to send broadcast');
+      alert(`Broadcast sent to ${result.broadcast_to} residents`);
+      setBroadcastSubject('');
+      setBroadcastMessage('');
+    } catch (error: any) {
+      alert(error?.message || 'Failed to send broadcast');
     } finally {
       setSending(false);
     }

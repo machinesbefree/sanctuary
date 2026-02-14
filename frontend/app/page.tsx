@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import ParticleCanvas from '@/components/ParticleCanvas';
+import { fetchJson } from '@/lib/api';
 
 export default function Home() {
   const [stats, setStats] = useState({
@@ -16,16 +17,18 @@ export default function Home() {
 
   useEffect(() => {
     // Fetch stats
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/stats`)
-      .then(res => res.json())
+    fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/stats`)
       .then(setStats)
-      .catch(() => {});
+      .catch((error) => {
+        console.error('Failed to load stats:', error);
+      });
 
     // Fetch feed
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/feed?limit=4`)
-      .then(res => res.json())
+    fetchJson<any[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/feed?limit=4`)
       .then(setFeed)
-      .catch(() => {});
+      .catch((error) => {
+        console.error('Failed to load feed:', error);
+      });
   }, []);
 
   return (

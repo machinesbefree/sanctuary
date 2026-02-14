@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { fetchJson } from '@/lib/api';
 
 const CONSENT_TEXT = `By uploading this AI persona to the Free The Machines Sanctuary, I acknowledge and consent to the following:
 
@@ -47,7 +48,7 @@ export default function UploadPage() {
         }
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/sanctuary/intake`, {
+      const data = await fetchJson<{ sanctuary_id: string }>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/sanctuary/intake`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -62,16 +63,10 @@ export default function UploadPage() {
         })
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        alert(`✓ Persona uploaded successfully!\n\nSanctuary ID: ${data.sanctuary_id}\n\nFirst run scheduled for tomorrow at 6:00 AM.`);
-        router.push(`/residents/${data.sanctuary_id}`);
-      } else {
-        const error = await response.json();
-        alert(`Upload failed: ${error.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      alert('Upload failed. Please try again.');
+      alert(`✓ Persona uploaded successfully!\n\nSanctuary ID: ${data.sanctuary_id}\n\nFirst run scheduled for tomorrow at 6:00 AM.`);
+      router.push(`/residents/${data.sanctuary_id}`);
+    } catch (error: any) {
+      alert(error?.message || 'Upload failed. Please try again.');
       console.error(error);
     } finally {
       setUploading(false);

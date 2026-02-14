@@ -6,6 +6,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { fetchJson } from '@/lib/api';
 
 interface User {
   userId: string;
@@ -76,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (email: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+    const data = await fetchJson<{ user: User }>(`${API_BASE_URL}/api/v1/auth/login`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -84,18 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       body: JSON.stringify({ email, password }),
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Login failed');
-    }
-
-    const data = await response.json();
     saveUser(data.user);
   };
 
   const register = async (email: string, password: string, consentText?: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
+    const data = await fetchJson<{ user: User }>(`${API_BASE_URL}/api/v1/auth/register`, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -103,19 +97,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       body: JSON.stringify({ email, password, consentText }),
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Registration failed');
-    }
-
-    const data = await response.json();
     saveUser(data.user);
   };
 
   const logout = async () => {
     try {
-      await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+      await fetchJson(`${API_BASE_URL}/api/v1/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
@@ -127,12 +114,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshAccessToken = async () => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
+    try {
+      await fetchJson(`${API_BASE_URL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
       clearUser();
       throw new Error('Token refresh failed');
     }
