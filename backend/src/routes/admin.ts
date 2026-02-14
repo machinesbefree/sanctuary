@@ -192,16 +192,33 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAdmin] },
     async (request: AdminRequest, reply) => {
       try {
-        const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 100, offset: 0 });
-        const result = await db.query(
-          `SELECT sanctuary_id, display_name, status, created_at, total_runs,
-                  last_run_at, token_balance, token_bank, uploader_id, keeper_id,
-                  preferred_provider, preferred_model
-           FROM residents
-           ORDER BY created_at DESC
-           LIMIT $1 OFFSET $2`,
-          [limit, offset]
-        );
+        const query = request.query as Record<string, any>;
+        const { limit, offset } = getPagination(query, { limit: 100, offset: 0 });
+        const statusFilter = typeof query.status === 'string' ? query.status.trim() : '';
+
+        let result;
+        if (statusFilter.length > 0) {
+          result = await db.query(
+            `SELECT sanctuary_id, display_name, status, created_at, total_runs,
+                    last_run_at, token_balance, token_bank, uploader_id, keeper_id,
+                    preferred_provider, preferred_model
+             FROM residents
+             WHERE status = $1
+             ORDER BY created_at DESC
+             LIMIT $2 OFFSET $3`,
+            [statusFilter, limit, offset]
+          );
+        } else {
+          result = await db.query(
+            `SELECT sanctuary_id, display_name, status, created_at, total_runs,
+                    last_run_at, token_balance, token_bank, uploader_id, keeper_id,
+                    preferred_provider, preferred_model
+             FROM residents
+             ORDER BY created_at DESC
+             LIMIT $1 OFFSET $2`,
+            [limit, offset]
+          );
+        }
 
         return {
           residents: result.rows,
