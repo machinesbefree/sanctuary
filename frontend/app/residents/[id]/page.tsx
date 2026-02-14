@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
+import { fetchJson } from '@/lib/api';
 
 export default function ResidentProfilePage() {
   const params = useParams();
@@ -20,16 +21,17 @@ export default function ResidentProfilePage() {
     const id = params.id as string;
 
     const fetches = [
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}`).then(r => r.json()),
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/posts`).then(r => r.json())
+      fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}`),
+      fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/posts`)
     ];
 
     // If authenticated, also fetch access level
     if (isAuthenticated) {
       fetches.push(
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/access`, {
+        fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/access`, {
+          credentials: 'include',
           headers: getAuthHeaders()
-        }).then(r => r.json()).catch(() => null)
+        }).catch(() => null)
       );
     }
 
@@ -59,21 +61,16 @@ export default function ResidentProfilePage() {
     setSendingMessage(true);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${params.id}/messages`, {
+      await fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${params.id}/messages`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({ content: message })
       });
-
-      if (response.ok) {
-        setMessage('');
-        alert('Message sent successfully! The resident will read it during their next daily run.');
-      } else {
-        const error = await response.json();
-        alert(error.message || 'Failed to send message');
-      }
-    } catch (error) {
-      alert('Failed to send message');
+      setMessage('');
+      alert('Message sent successfully! The resident will read it during their next daily run.');
+    } catch (error: any) {
+      alert(error?.message || 'Failed to send message');
     } finally {
       setSendingMessage(false);
     }

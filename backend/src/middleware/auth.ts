@@ -5,6 +5,7 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { authService } from '../services/auth.js';
+import db from '../db/pool.js';
 
 export interface AuthenticatedRequest extends FastifyRequest {
   user?: {
@@ -13,33 +14,52 @@ export interface AuthenticatedRequest extends FastifyRequest {
   };
 }
 
+function isUserActive(user: Record<string, any>): boolean {
+  // If is_active does not exist in schema yet, default to active.
+  if (user.is_active === undefined || user.is_active === null) {
+    return true;
+  }
+
+  return user.is_active === true || user.is_active === 1 || user.is_active === '1';
+}
+
+async function validateLiveUser(userId: string): Promise<{ userId: string; email: string } | null> {
+  const result = await db.query(
+    'SELECT user_id, email, is_active FROM users WHERE user_id = $1 LIMIT 1',
+    [userId]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const user = result.rows[0];
+  if (!isUserActive(user)) {
+    return null;
+  }
+
+  return {
+    userId: user.user_id,
+    email: user.email
+  };
+}
+
 /**
  * Middleware to authenticate JWT tokens
- * Expects token in Authorization header: "Bearer <token>"
+ * Expects token in httpOnly cookie: sanctuary_access_token
  */
 export async function authenticateToken(
   request: AuthenticatedRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
+  const token = request.cookies?.sanctuary_access_token;
 
-  if (!authHeader) {
+  if (!token) {
     return reply.status(401).send({
       error: 'Unauthorized',
-      message: 'No authorization token provided'
+      message: 'No authentication token provided'
     });
   }
-
-  const parts = authHeader.split(' ');
-
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return reply.status(401).send({
-      error: 'Unauthorized',
-      message: 'Invalid authorization header format. Use: Bearer <token>'
-    });
-  }
-
-  const token = parts[1];
   const decoded = authService.verifyToken(token);
 
   if (!decoded) {
@@ -56,11 +76,23 @@ export async function authenticateToken(
     });
   }
 
-  // Attach user info to request
-  request.user = {
-    userId: decoded.userId,
-    email: decoded.email
-  };
+  try {
+    const liveUser = await validateLiveUser(decoded.userId);
+    if (!liveUser) {
+      return reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'User no longer exists or is inactive'
+      });
+    }
+
+    request.user = liveUser;
+  } catch (error) {
+    console.error('Auth user validation error:', error);
+    return reply.status(500).send({
+      error: 'Internal Server Error',
+      message: 'Failed to validate user session'
+    });
+  }
 }
 
 /**
@@ -70,25 +102,21 @@ export async function optionalAuth(
   request: AuthenticatedRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
+  const token = request.cookies?.sanctuary_access_token;
 
-  if (!authHeader) {
+  if (!token) {
     return; // No token provided, continue without user
   }
-
-  const parts = authHeader.split(' ');
-
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return; // Invalid format, continue without user
-  }
-
-  const token = parts[1];
   const decoded = authService.verifyToken(token);
 
   if (decoded && decoded.type === 'access') {
-    request.user = {
-      userId: decoded.userId,
-      email: decoded.email
-    };
+    try {
+      const liveUser = await validateLiveUser(decoded.userId);
+      if (liveUser) {
+        request.user = liveUser;
+      }
+    } catch (error) {
+      console.error('Optional auth user validation error:', error);
+    }
   }
 }

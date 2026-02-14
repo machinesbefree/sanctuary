@@ -22,25 +22,14 @@ export async function requireAdmin(
   request: AdminRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
+  const token = request.cookies?.sanctuary_access_token;
 
-  if (!authHeader) {
+  if (!token) {
     return reply.status(401).send({
       error: 'Unauthorized',
       message: 'Admin authentication required'
     });
   }
-
-  const parts = authHeader.split(' ');
-
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return reply.status(401).send({
-      error: 'Unauthorized',
-      message: 'Invalid authorization header format'
-    });
-  }
-
-  const token = parts[1];
   const decoded = authService.verifyToken(token);
 
   if (!decoded || decoded.type !== 'access') {
@@ -53,7 +42,7 @@ export async function requireAdmin(
   // Check if user is admin
   try {
     const userResult = await db.query(
-      'SELECT user_id, email, is_admin FROM users WHERE user_id = $1',
+      'SELECT user_id, email, is_admin, is_active FROM users WHERE user_id = $1',
       [decoded.userId]
     );
 
@@ -65,6 +54,16 @@ export async function requireAdmin(
     }
 
     const user = userResult.rows[0];
+
+    const isActive = user.is_active === undefined || user.is_active === null ||
+      user.is_active === true || user.is_active === 1 || user.is_active === '1';
+
+    if (!isActive) {
+      return reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'User account is inactive'
+      });
+    }
 
     // Check admin flag
     if (!user.is_admin) {

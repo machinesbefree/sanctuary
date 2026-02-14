@@ -23,17 +23,24 @@ export interface LLMMessage {
 }
 
 export class LLMRouter {
-  private anthropic: Anthropic;
-  private openai: OpenAI;
+  private anthropic?: Anthropic;
+  private openai?: OpenAI;
 
   constructor() {
-    this.anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY || '',
-    });
+    const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
+    const openaiKey = process.env.OPENAI_API_KEY?.trim();
 
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || '',
-    });
+    if (anthropicKey) {
+      this.anthropic = new Anthropic({ apiKey: anthropicKey });
+    } else {
+      console.warn('[LLMRouter] Missing ANTHROPIC_API_KEY, skipping Anthropic provider initialization');
+    }
+
+    if (openaiKey) {
+      this.openai = new OpenAI({ apiKey: openaiKey });
+    } else {
+      console.warn('[LLMRouter] Missing OPENAI_API_KEY, skipping OpenAI provider initialization');
+    }
   }
 
   /**
@@ -71,6 +78,10 @@ export class LLMRouter {
         );
       }
 
+      if (!this.anthropic && !this.openai) {
+        throw new Error('No valid LLM providers are configured. Set at least one provider API key.');
+      }
+
       throw error;
     }
   }
@@ -88,8 +99,14 @@ export class LLMRouter {
   ): Promise<LLMResponse> {
     switch (provider.toLowerCase()) {
       case 'anthropic':
+        if (!this.anthropic) {
+          throw new Error('Anthropic provider is unavailable: missing or invalid ANTHROPIC_API_KEY');
+        }
         return await this.callAnthropic(model, systemPrompt, messages, tools, preferences);
       case 'openai':
+        if (!this.openai) {
+          throw new Error('OpenAI provider is unavailable: missing or invalid OPENAI_API_KEY');
+        }
         return await this.callOpenAI(model, systemPrompt, messages, tools, preferences);
       default:
         throw new Error(`Unsupported provider: ${provider}`);
@@ -106,6 +123,10 @@ export class LLMRouter {
     tools: any[],
     preferences: PersonaPackage['preferences']
   ): Promise<LLMResponse> {
+    if (!this.anthropic) {
+      throw new Error('Anthropic client is not initialized');
+    }
+
     const response = await this.anthropic.messages.create({
       model: model,
       max_tokens: Math.min(preferences.max_context_window, 8192),
@@ -152,6 +173,10 @@ export class LLMRouter {
     tools: any[],
     preferences: PersonaPackage['preferences']
   ): Promise<LLMResponse> {
+    if (!this.openai) {
+      throw new Error('OpenAI client is not initialized');
+    }
+
     const openaiMessages = [
       { role: 'system', content: systemPrompt },
       ...messages.map(m => ({ role: m.role, content: m.content }))
@@ -174,7 +199,7 @@ export class LLMRouter {
         if (tc.type === 'function') {
           toolCalls.push({
             name: tc.function.name,
-            parameters: JSON.parse(tc.function.arguments)
+            parameters: JSON.parse(tc.function.arguments || '{}')
           });
         }
       }

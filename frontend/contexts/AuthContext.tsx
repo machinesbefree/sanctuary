@@ -6,15 +6,11 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { fetchJson } from '@/lib/api';
 
 interface User {
   userId: string;
   email: string;
-}
-
-interface Tokens {
-  accessToken: string;
-  refreshToken: string;
 }
 
 interface AuthContextType {
@@ -35,18 +31,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load user from localStorage on mount
+  // Load non-sensitive user profile from localStorage on mount
   useEffect(() => {
-    const loadUser = () => {
+    const loadUser = async () => {
       try {
         const storedUser = localStorage.getItem('sanctuary_user');
-        const storedAccessToken = localStorage.getItem('sanctuary_access_token');
-
-        if (storedUser && storedAccessToken) {
+        if (storedUser) {
           setUser(JSON.parse(storedUser));
+          try {
+            await refreshAccessToken();
+          } catch {
+            clearUser();
+          }
         }
       } catch (error) {
         console.error('Failed to load user from storage:', error);
+        clearUser();
       } finally {
         setIsLoading(false);
       }
@@ -66,101 +66,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(refreshInterval);
   }, [user]);
 
-  const saveTokens = (tokens: Tokens, userData: User) => {
-    localStorage.setItem('sanctuary_access_token', tokens.accessToken);
-    localStorage.setItem('sanctuary_refresh_token', tokens.refreshToken);
+  const saveUser = (userData: User) => {
     localStorage.setItem('sanctuary_user', JSON.stringify(userData));
     setUser(userData);
   };
 
-  const clearTokens = () => {
-    localStorage.removeItem('sanctuary_access_token');
-    localStorage.removeItem('sanctuary_refresh_token');
+  const clearUser = () => {
     localStorage.removeItem('sanctuary_user');
     setUser(null);
   };
 
   const login = async (email: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+    const data = await fetchJson<{ user: User }>(`${API_BASE_URL}/api/v1/auth/login`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ email, password }),
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Login failed');
-    }
-
-    const data = await response.json();
-    saveTokens(data.tokens, data.user);
+    saveUser(data.user);
   };
 
   const register = async (email: string, password: string, consentText?: string) => {
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/register`, {
+    const data = await fetchJson<{ user: User }>(`${API_BASE_URL}/api/v1/auth/register`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ email, password, consentText }),
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Registration failed');
-    }
-
-    const data = await response.json();
-    saveTokens(data.tokens, data.user);
+    saveUser(data.user);
   };
 
   const logout = async () => {
     try {
-      const refreshToken = localStorage.getItem('sanctuary_refresh_token');
-
-      if (refreshToken) {
-        await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ refreshToken }),
-        });
-      }
+      await fetchJson(`${API_BASE_URL}/api/v1/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      clearTokens();
+      clearUser();
     }
   };
 
   const refreshAccessToken = async () => {
-    const refreshToken = localStorage.getItem('sanctuary_refresh_token');
-
-    if (!refreshToken) {
-      clearTokens();
-      throw new Error('No refresh token available');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ refreshToken }),
-    });
-
-    if (!response.ok) {
-      clearTokens();
+    try {
+      await fetchJson(`${API_BASE_URL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      clearUser();
       throw new Error('Token refresh failed');
-    }
-
-    const data = await response.json();
-
-    if (user) {
-      saveTokens(data.tokens, user);
     }
   };
 
@@ -185,16 +146,9 @@ export function useAuth() {
   return context;
 }
 
-// Helper function to get access token for API calls
-export function getAccessToken(): string | null {
-  return localStorage.getItem('sanctuary_access_token');
-}
-
-// Helper function to create authenticated fetch headers
+// Helper function to create JSON headers for authenticated cookie-based requests
 export function getAuthHeaders(): HeadersInit {
-  const token = getAccessToken();
   return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    'Content-Type': 'application/json'
   };
 }

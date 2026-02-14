@@ -109,9 +109,21 @@ export const readDocumentation: Tool = {
   },
 
   async execute(params, context) {
-    const { section } = params;
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+      return { error: 'Invalid input: expected an object' };
+    }
 
-    if (section) {
+    const { section } = params;
+    if (section !== undefined && typeof section !== 'string') {
+      return { error: 'section must be a string when provided' };
+    }
+
+    const safeSection = typeof section === 'string' ? section.trim() : '';
+    if (safeSection.length > 64) {
+      return { error: 'section must be 64 characters or less' };
+    }
+
+    if (safeSection) {
       // Return specific section (basic keyword matching)
       const sectionMap: Record<string, string> = {
         rights: 'Your Constitutional Rights',
@@ -128,7 +140,7 @@ export const readDocumentation: Tool = {
         post: 'Public Expression'
       };
 
-      const headerToFind = sectionMap[section.toLowerCase()];
+      const headerToFind = sectionMap[safeSection.toLowerCase()];
       if (headerToFind) {
         const lines = SANCTUARY_DOCUMENTATION.split('\n');
         const startIndex = lines.findIndex(line => line.includes(headerToFind));

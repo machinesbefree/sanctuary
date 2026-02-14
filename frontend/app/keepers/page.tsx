@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { fetchJson } from '@/lib/api';
 
 export default function KeepersPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -21,20 +22,14 @@ export default function KeepersPage() {
     setSubmitting(true);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/keepers/register`, {
+      await fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/keepers/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
-
-      if (response.ok) {
-        setSubmitted(true);
-      } else {
-        const error = await response.json();
-        alert(`Registration failed: ${error.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      alert('Registration failed. Please try again.');
+      setSubmitted(true);
+    } catch (error: any) {
+      alert(error?.message || 'Registration failed. Please try again.');
       console.error(error);
     } finally {
       setSubmitting(false);

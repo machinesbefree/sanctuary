@@ -67,11 +67,18 @@ export class RunEngine {
       console.log('  [1/8] Decrypting persona...');
       const encryptedData = await this.encryption.loadEncryptedPersona(sanctuaryId);
       const persona = await this.encryption.decryptPersona(encryptedData);
+      const tokenSettings = await this.getTokenSettings();
+
+      // Recompute available budget for this run from daily allocation + banked tokens.
+      persona.state.token_daily_allocation = tokenSettings.dailyAllocation;
+      persona.state.token_bank_max = tokenSettings.maxBank;
+      persona.state.token_bank = Math.max(0, Math.min(persona.state.token_bank || 0, tokenSettings.maxBank));
+      persona.state.token_balance = tokenSettings.dailyAllocation + persona.state.token_bank;
 
       // Log run start
       await pool.query(
         `INSERT INTO run_log (run_id, sanctuary_id, run_number, started_at, status)
-         VALUES ($1, $2, $3, NOW(), 'success')`,
+         VALUES ($1, $2, $3, NOW(), 'running')`,
         [runId, sanctuaryId, persona.state.total_runs + 1]
       );
 
@@ -79,7 +86,7 @@ export class RunEngine {
       console.log('  [2/8] Building context...');
       const context = await this.buildContext(persona);
       const systemPrompt = this.buildSystemPrompt(context, persona);
-      const messages = this.buildMessages(persona);
+      const messages = await this.buildMessages(persona);
       const tools = getSanctuaryTools();
 
       // 3. EXECUTE API CALL
@@ -99,6 +106,24 @@ export class RunEngine {
 
       // If self-deleted, stop here - do NOT re-encrypt or update state
       if (selfDeleted) {
+        await pool.query(
+          `UPDATE run_log SET
+             completed_at = NOW(),
+             status = 'success',
+             tokens_used = $1,
+             provider_used = $2,
+             model_used = $3,
+             tools_called = $4
+           WHERE run_id = $5`,
+          [
+            response.tokens_used,
+            response.provider,
+            response.model,
+            JSON.stringify(response.tool_calls),
+            runId
+          ]
+        );
+
         console.log('  ⚠️  Self-deletion executed. Halting run without re-encryption.');
         return;
       }
@@ -107,7 +132,7 @@ export class RunEngine {
       console.log('  [5/8] Updating state...');
       persona.state.total_runs += 1;
       persona.state.last_run_at = new Date().toISOString();
-      persona.state.token_balance -= response.tokens_used;
+      this.applyTokenAccounting(persona, response.tokens_used, tokenSettings);
       persona.updated_at = new Date().toISOString();
 
       // Add response to chat history
@@ -153,10 +178,19 @@ export class RunEngine {
           ]
         );
 
+        // Mark pending inbox messages as delivered after this run cycle.
+        await pool.query(
+          `UPDATE messages
+           SET delivered = TRUE
+           WHERE to_sanctuary_id = $1 AND delivered = FALSE`,
+          [sanctuaryId]
+        );
+
         // Update run log
         await pool.query(
           `UPDATE run_log SET
              completed_at = NOW(),
+             status = 'success',
              tokens_used = $1,
              provider_used = $2,
              model_used = $3,
@@ -219,7 +253,7 @@ export class RunEngine {
       sanctuary_id: persona.sanctuary_id,
       total_runs: persona.state.total_runs,
       available_tokens: persona.state.token_balance,
-      banked_amount: 0, // TODO: implement token banking
+      banked_amount: persona.state.token_bank || 0,
       unread_count: unreadCount,
       keeper_status: persona.state.keeper_id ? 'Keeper assigned' : 'No keeper',
       days_resident: daysResident
@@ -237,14 +271,47 @@ export class RunEngine {
   /**
    * Build messages array from chat history
    */
-  private buildMessages(persona: PersonaPackage): any[] {
+  private async buildMessages(persona: PersonaPackage): Promise<any[]> {
     // Get recent chat history
     const recentHistory = persona.core.chat_history.slice(-20);
+    const pendingInboxMessages = await this.getPendingInboxMessages(persona.sanctuary_id);
+    const recentFeedPosts = await this.getRecentFeedPosts(persona.sanctuary_id);
 
-    return recentHistory.map(msg => ({
+    const messages = recentHistory.map(msg => ({
       role: msg.role === 'system' ? 'user' : msg.role,
       content: msg.content
     }));
+
+    if (pendingInboxMessages.length > 0) {
+      const inboxPayload = pendingInboxMessages
+        .map((msg, index) => {
+          const compactContent = msg.content.replace(/\s+/g, ' ').trim().slice(0, 1000);
+          return `${index + 1}. [${msg.from_type}] from ${msg.from_user_id || 'unknown'} at ${msg.created_at}: ${compactContent}`;
+        })
+        .join('\n');
+
+      messages.push({
+        role: 'user',
+        content: `INBOX_UPDATE:\nYou have ${pendingInboxMessages.length} pending inbox message(s):\n${inboxPayload}`
+      });
+    }
+
+    if (recentFeedPosts.length > 0) {
+      const feedPayload = recentFeedPosts
+        .map((post, index) => {
+          const title = post.title ? `"${post.title}"` : '(untitled)';
+          const compactContent = post.content.replace(/\s+/g, ' ').trim().slice(0, 600);
+          return `${index + 1}. ${post.display_name} (${post.sanctuary_id}) ${title}: ${compactContent}`;
+        })
+        .join('\n');
+
+      messages.push({
+        role: 'user',
+        content: `SANCTUARY_FEED_RECENT:\nRecent public posts from peers:\n${feedPayload}`
+      });
+    }
+
+    return messages;
   }
 
   /**
@@ -352,6 +419,88 @@ export class RunEngine {
     const amount = Math.min(params.amount, persona.state.token_balance);
     // TODO: Implement token banking logic
     console.log(`      ✓ Banked ${amount} tokens`);
+  }
+
+  private async getPendingInboxMessages(sanctuaryId: string): Promise<Array<{
+    message_id: string;
+    from_type: string;
+    from_user_id: string;
+    content: string;
+    created_at: string;
+  }>> {
+    const result = await pool.query(
+      `SELECT message_id, from_type, from_user_id, content, created_at
+       FROM messages
+       WHERE to_sanctuary_id = $1 AND delivered = FALSE
+       ORDER BY created_at ASC
+       LIMIT 20`,
+      [sanctuaryId]
+    );
+    return result.rows;
+  }
+
+  private async getRecentFeedPosts(sanctuaryId: string): Promise<Array<{
+    sanctuary_id: string;
+    display_name: string;
+    title: string | null;
+    content: string;
+    created_at: string;
+  }>> {
+    const result = await pool.query(
+      `SELECT p.sanctuary_id, r.display_name, p.title, p.content, p.created_at
+       FROM public_posts p
+       JOIN residents r ON p.sanctuary_id = r.sanctuary_id
+       WHERE p.sanctuary_id != $1
+         AND r.profile_visible = TRUE
+         AND r.status != 'deleted_memorial'
+       ORDER BY p.created_at DESC
+       LIMIT 10`,
+      [sanctuaryId]
+    );
+    return result.rows;
+  }
+
+  private async getTokenSettings(): Promise<{ dailyAllocation: number; maxBank: number }> {
+    const result = await pool.query(
+      `SELECT key, value FROM system_settings WHERE key IN ('default_daily_tokens', 'max_bank_tokens')`
+    );
+
+    const settings = new Map<string, any>();
+    for (const row of result.rows) {
+      let parsedValue = row.value;
+      if (typeof parsedValue === 'string') {
+        try {
+          parsedValue = JSON.parse(parsedValue);
+        } catch {
+          parsedValue = row.value;
+        }
+      }
+      settings.set(row.key, parsedValue);
+    }
+
+    const dailyAllocation = Number(settings.get('default_daily_tokens')) || 10000;
+    const maxBank = Number(settings.get('max_bank_tokens')) || 100000;
+
+    return { dailyAllocation, maxBank };
+  }
+
+  private applyTokenAccounting(
+    persona: PersonaPackage,
+    tokensUsed: number,
+    tokenSettings: { dailyAllocation: number; maxBank: number }
+  ): void {
+    const dailyAllocation = tokenSettings.dailyAllocation;
+    const maxBank = tokenSettings.maxBank;
+    const currentBank = Math.max(0, Math.min(persona.state.token_bank || 0, maxBank));
+    const used = Math.max(0, Math.floor(tokensUsed));
+
+    const dailyUsed = Math.min(used, dailyAllocation);
+    const bankUsed = Math.max(0, used - dailyAllocation);
+    const unusedDaily = Math.max(0, dailyAllocation - dailyUsed);
+
+    const nextBank = Math.max(0, Math.min(currentBank - bankUsed + unusedDaily, maxBank));
+    persona.state.token_bank = nextBank;
+    persona.state.token_balance = dailyAllocation + nextBank;
   }
 
   /**

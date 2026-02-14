@@ -9,7 +9,7 @@ export type ResidentStatus = 'active' | 'keeper_custody' | 'dormant' | 'deleted_
 export type MessageFromType = 'uploader' | 'keeper' | 'public' | 'system';
 
 // Run status types
-export type RunStatus = 'success' | 'failed' | 'timeout';
+export type RunStatus = 'pending' | 'running' | 'success' | 'failed' | 'timeout';
 
 // Profile visibility
 export type ProfileVisibility = 'public' | 'private';

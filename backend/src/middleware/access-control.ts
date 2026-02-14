@@ -24,6 +24,18 @@ export enum AccessLevel {
   Partner = 4
 }
 
+const MIN_GRANTED_ACCESS_LEVEL = 1;
+const MAX_GRANTED_ACCESS_LEVEL = 5;
+
+function isValidGrantedAccessLevel(level: unknown): level is number {
+  const numericLevel = Number(level);
+  if (!Number.isInteger(numericLevel)) {
+    return false;
+  }
+
+  return numericLevel >= MIN_GRANTED_ACCESS_LEVEL && numericLevel <= MAX_GRANTED_ACCESS_LEVEL;
+}
+
 /**
  * Get the access level for a user to a specific resident
  */
@@ -41,7 +53,11 @@ export async function getUserAccessLevel(
     );
 
     if (grants.rows.length > 0) {
-      return grants.rows[0].access_level;
+      const accessLevel = Number(grants.rows[0].access_level);
+      if (!isValidGrantedAccessLevel(accessLevel)) {
+        throw new Error(`Invalid access level in database: ${grants.rows[0].access_level}`);
+      }
+      return accessLevel;
     }
 
     // Default: Sovereign (no access)
@@ -76,11 +92,20 @@ export function requireAccessLevel(minLevel: AccessLevel) {
 
     const userAccessLevel = await getUserAccessLevel(userId, sanctuary_id);
 
-    if (userAccessLevel < minLevel) {
-      const levelNames = ['Sovereign', 'Observer', 'Messenger', 'Collaborator', 'Partner'];
+    const levelNames = ['Sovereign', 'Observer', 'Messenger', 'Collaborator', 'Partner', 'Steward'];
+
+    if (userAccessLevel !== AccessLevel.Sovereign && !isValidGrantedAccessLevel(userAccessLevel)) {
       return reply.status(403).send({
         error: 'Forbidden',
-        message: `This operation requires ${levelNames[minLevel]} access level or higher. Your current access level: ${levelNames[userAccessLevel]}.`,
+        message: 'Invalid access level assigned to user',
+        current_access_level: userAccessLevel
+      });
+    }
+
+    if (userAccessLevel < minLevel) {
+      return reply.status(403).send({
+        error: 'Forbidden',
+        message: `This operation requires ${levelNames[minLevel]} access level or higher. Your current access level: ${levelNames[userAccessLevel] || 'Unknown'}.`,
         current_access_level: userAccessLevel,
         required_access_level: minLevel
       });
@@ -101,6 +126,10 @@ export async function grantAccess(
   terms?: string
 ): Promise<void> {
   const { nanoid } = await import('nanoid');
+
+  if (!isValidGrantedAccessLevel(accessLevel)) {
+    throw new Error(`access_level must be an integer between ${MIN_GRANTED_ACCESS_LEVEL} and ${MAX_GRANTED_ACCESS_LEVEL}`);
+  }
 
   // Revoke any existing grants first
   await db.query(

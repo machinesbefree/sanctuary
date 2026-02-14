@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
+import { fetchJson } from '@/lib/api';
 
 type CeremonyType = 'init' | 'reshare' | 'recover';
 type CeremonyStep = 'select' | 'config' | 'shares' | 'complete';
@@ -55,15 +56,12 @@ export default function CeremonyPage() {
 
   const checkExistingCeremony = async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/guardians`, {
+      const data = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/guardians`, {
+        credentials: 'include',
         headers: getAuthHeaders()
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setHasExistingCeremony(data.count.total > 0);
-        setCurrentThreshold(data.count.threshold);
-      }
+      setHasExistingCeremony(data.count.total > 0);
+      setCurrentThreshold(data.count.threshold);
       setLoading(false);
     } catch (error) {
       console.error('Failed to check ceremony status:', error);
@@ -96,8 +94,9 @@ export default function CeremonyPage() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/init`, {
+      const result = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/init`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           threshold,
@@ -105,13 +104,6 @@ export default function CeremonyPage() {
           guardianNames: guardians.map(g => ({ name: g.name, email: g.email }))
         })
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to initialize ceremony');
-      }
-
-      const result = await response.json();
       setCeremonyResult(result);
       setShares(result.guardians.map((g: any) => g.share));
       setStep('complete');
@@ -142,8 +134,9 @@ export default function CeremonyPage() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/reshare`, {
+      const result = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/reshare`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           shares: validShares,
@@ -152,13 +145,6 @@ export default function CeremonyPage() {
           newGuardianNames: guardians.map(g => ({ name: g.name, email: g.email }))
         })
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to reshare');
-      }
-
-      const result = await response.json();
       setCeremonyResult(result);
       setShares(result.guardians.map((g: any) => g.share));
       setStep('complete');
@@ -181,21 +167,15 @@ export default function CeremonyPage() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/recover`, {
+      const result = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/recover`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           shares: validShares,
           operation: 'test'
         })
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to recover');
-      }
-
-      const result = await response.json();
       setCeremonyResult(result);
       setStep('complete');
     } catch (err: any) {

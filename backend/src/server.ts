@@ -6,6 +6,7 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
@@ -70,6 +71,9 @@ async function start() {
     origin: process.env.FRONTEND_URL || 'http://localhost:3000',
     credentials: true
   });
+
+  // Parse Cookie headers so auth middleware can read JWTs from httpOnly cookies
+  await fastify.register(cookie);
 
   // Health check
   fastify.get('/health', async () => {

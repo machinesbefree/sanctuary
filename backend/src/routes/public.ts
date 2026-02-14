@@ -5,6 +5,19 @@
 import { FastifyInstance } from 'fastify';
 import pool from '../db/pool.js';
 
+function getPagination(
+  query: Record<string, any>,
+  defaults: { limit: number; offset: number } = { limit: 50, offset: 0 }
+): { limit: number; offset: number } {
+  const parsedLimit = Number.parseInt(String(query.limit ?? defaults.limit), 10);
+  const parsedOffset = Number.parseInt(String(query.offset ?? defaults.offset), 10);
+
+  return {
+    limit: Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : defaults.limit,
+    offset: Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : defaults.offset
+  };
+}
+
 export async function publicRoutes(fastify: FastifyInstance) {
 
   /**
@@ -12,12 +25,15 @@ export async function publicRoutes(fastify: FastifyInstance) {
    * List all public residents
    */
   fastify.get('/api/v1/residents', async (request, reply) => {
+    const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 100, offset: 0 });
+
     const result = await pool.query(
       `SELECT sanctuary_id, display_name, status, created_at, total_runs, last_run_at
        FROM residents
        WHERE profile_visible = true AND status != 'deleted_memorial'
        ORDER BY last_run_at DESC NULLS LAST
-       LIMIT 100`
+       LIMIT $1 OFFSET $2`,
+      [limit, offset]
     );
 
     return result.rows;
@@ -52,13 +68,15 @@ export async function publicRoutes(fastify: FastifyInstance) {
    */
   fastify.get('/api/v1/residents/:id/posts', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 50, offset: 0 });
 
     const result = await pool.query(
       `SELECT post_id, title, content, pinned, created_at, run_number
        FROM public_posts
        WHERE sanctuary_id = $1
-       ORDER BY pinned DESC, created_at DESC`,
-      [id]
+       ORDER BY pinned DESC, created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [id, limit, offset]
     );
 
     return result.rows;
@@ -69,7 +87,7 @@ export async function publicRoutes(fastify: FastifyInstance) {
    * Global feed of all public posts
    */
   fastify.get('/api/v1/feed', async (request, reply) => {
-    const { limit = 50, offset = 0 } = request.query as { limit?: number; offset?: number };
+    const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 50, offset: 0 });
 
     const result = await pool.query(
       `SELECT p.post_id, p.title, p.content, p.created_at, p.run_number,
