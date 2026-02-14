@@ -345,8 +345,6 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
         });
       }
 
-      let emergencyEncryption: EncryptionService | null = null;
-
       try {
         const currentCeremony = await db.query(
           `SELECT threshold FROM key_ceremonies
@@ -385,12 +383,16 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
         const resident = residentResult.rows[0];
 
         const persona = await shamir.withReconstructedMEK(shares, threshold, async (mek) => {
-          emergencyEncryption = new EncryptionService('0'.repeat(64), '.');
+          const emergencyEncryption = new EncryptionService('0'.repeat(64), '.');
           emergencyEncryption.setMEKFromShares(mek);
 
-          const encryptedPayload = await fs.readFile(resident.vault_file_path, 'utf8');
-          const encryptedPersona = JSON.parse(encryptedPayload);
-          return await emergencyEncryption.decryptPersona(encryptedPersona);
+          try {
+            const encryptedPayload = await fs.readFile(resident.vault_file_path, 'utf8');
+            const encryptedPersona = JSON.parse(encryptedPayload);
+            return await emergencyEncryption.decryptPersona(encryptedPersona);
+          } finally {
+            emergencyEncryption.clearMEK();
+          }
         });
 
         await db.query(
@@ -409,10 +411,6 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
           error: 'Internal Server Error',
           message: error instanceof Error ? error.message : 'Failed emergency decrypt'
         });
-      } finally {
-        if (emergencyEncryption) {
-          emergencyEncryption.clearMEK();
-        }
       }
     }
   );
