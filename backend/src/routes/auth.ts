@@ -134,7 +134,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
-    if (!authService.validateEmail(email)) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!authService.validateEmail(normalizedEmail)) {
       return reply.status(400).send({
         error: 'Bad Request',
         message: 'Invalid email format'
@@ -153,7 +155,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // Check if user already exists
       const existingUser = await db.query(
         'SELECT * FROM users WHERE email = $1',
-        [email]
+        [normalizedEmail]
       );
 
       if (existingUser.rows.length > 0) {
@@ -168,7 +170,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       // Generate tokens
       const userId = nanoid();
-      const tokens = authService.generateTokenPair(userId, email);
+      const tokens = authService.generateTokenPair(userId, normalizedEmail);
       const refreshTokenHash = await authService.hashRefreshToken(tokens.refreshToken);
       const expiresAt = authService.getRefreshTokenExpiry();
 
@@ -177,7 +179,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       try {
         await db.query(
           'INSERT INTO users (user_id, email, password_hash, consent_text) VALUES ($1, $2, $3, $4)',
-          [userId, email, passwordHash, consentText || 'Default consent accepted']
+          [userId, normalizedEmail, passwordHash, consentText || 'Default consent accepted']
         );
 
         await db.query(
@@ -197,7 +199,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         message: 'User registered successfully',
         user: {
           userId,
-          email
+          email: normalizedEmail
         }
       });
     } catch (error) {
@@ -236,11 +238,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     try {
       // Find user
       const userResult = await db.query(
         'SELECT * FROM users WHERE email = $1',
-        [email]
+        [normalizedEmail]
       );
 
       if (userResult.rows.length === 0) {
