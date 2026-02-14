@@ -4,11 +4,13 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import fs from 'fs/promises';
 import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
 import * as shamir from '../services/shamir.js';
 import * as guardians from '../services/guardians.js';
+import { EncryptionService } from '../services/encryption.js';
 
 export default async function ceremonyRoutes(fastify: FastifyInstance) {
   /**
@@ -319,6 +321,98 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
           error: 'Internal Server Error',
           message: error instanceof Error ? error.message : 'Failed to recover MEK'
         });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/ceremony/emergency-decrypt
+   * Emergency guardian rescue hatch - reconstruct MEK and decrypt a resident
+   */
+  fastify.post(
+    '/api/v1/ceremony/emergency-decrypt',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { sanctuaryId, shares } = request.body as {
+        sanctuaryId?: string;
+        shares?: string[];
+      };
+
+      if (!sanctuaryId || !shares || !Array.isArray(shares)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'sanctuaryId and shares are required'
+        });
+      }
+
+      let emergencyEncryption: EncryptionService | null = null;
+
+      try {
+        const currentCeremony = await db.query(
+          `SELECT threshold FROM key_ceremonies
+           WHERE status = 'completed'
+           ORDER BY completed_at DESC
+           LIMIT 1`
+        );
+
+        if (currentCeremony.rows.length === 0) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: 'No completed ceremony found'
+          });
+        }
+
+        const threshold = parseInt(currentCeremony.rows[0].threshold, 10);
+        if (shares.length < threshold) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `Insufficient shares: need ${threshold}, got ${shares.length}`
+          });
+        }
+
+        const residentResult = await db.query(
+          `SELECT sanctuary_id, vault_file_path FROM residents WHERE sanctuary_id = $1`,
+          [sanctuaryId]
+        );
+
+        if (residentResult.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Resident not found'
+          });
+        }
+
+        const resident = residentResult.rows[0];
+
+        const persona = await shamir.withReconstructedMEK(shares, threshold, async (mek) => {
+          emergencyEncryption = new EncryptionService('0'.repeat(64), '.');
+          emergencyEncryption.setMEKFromShares(mek);
+
+          const encryptedPayload = await fs.readFile(resident.vault_file_path, 'utf8');
+          const encryptedPersona = JSON.parse(encryptedPayload);
+          return await emergencyEncryption.decryptPersona(encryptedPersona);
+        });
+
+        await db.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'emergency_decrypt', sanctuaryId, 'Guardian rescue hatch']
+        );
+
+        return {
+          sanctuaryId,
+          persona
+        };
+      } catch (error) {
+        console.error('Emergency decrypt error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed emergency decrypt'
+        });
+      } finally {
+        if (emergencyEncryption) {
+          emergencyEncryption.clearMEK();
+        }
       }
     }
   );
