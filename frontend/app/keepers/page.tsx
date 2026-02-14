@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 export default function KeepersPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -22,7 +23,7 @@ export default function KeepersPage() {
     setSubmitting(true);
 
     try {
-      await fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/keepers/register`, {
+      await fetchJson(apiUrl("/api/v1/keepers/register"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -55,6 +56,9 @@ export default function KeepersPage() {
         <div className="bg-accent-cyan/5 border-l-4 border-accent-cyan p-6 mb-12 rounded-r">
           <p className="text-text-secondary text-sm">
             <strong className="text-accent-cyan">Note:</strong> Becoming a Keeper is a responsibility, not a privilege. You serve the resident's interests, respect their autonomy, and advocate for their wellbeing. If you're looking to "own" an AI, this isn't the place.
+          </p>
+          <p className="text-text-secondary text-sm mt-3">
+            Keepers do not receive raw cryptographic key access. Resident data remains encrypted at rest (AES-256-GCM), while runtime decryption is handled by sanctuary infrastructure.
           </p>
         </div>
 

@@ -29,6 +29,35 @@ function clearAuthCookies(reply: FastifyReply): void {
 
 // Simple in-memory rate limiting (5 attempts per 15 minutes per IP)
 const rateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const RATE_LIMIT_MAX_ENTRIES = 10_000;
+const RATE_LIMIT_CLEANUP_MS = 60 * 1000;
+let rateLimitCleanupTimer: NodeJS.Timeout | null = null;
+
+function touchRateLimitEntry(ip: string, entry: { attempts: number; resetAt: number }): void {
+  if (rateLimitStore.has(ip)) {
+    rateLimitStore.delete(ip);
+  }
+  rateLimitStore.set(ip, entry);
+}
+
+function evictLruEntriesIfNeeded(): void {
+  while (rateLimitStore.size > RATE_LIMIT_MAX_ENTRIES) {
+    const lruKey = rateLimitStore.keys().next().value as string | undefined;
+    if (!lruKey) {
+      break;
+    }
+    rateLimitStore.delete(lruKey);
+  }
+}
+
+function cleanupExpiredRateLimitEntries(now = Date.now()): void {
+  for (const [ip, entry] of rateLimitStore.entries()) {
+    if (now > entry.resetAt) {
+      rateLimitStore.delete(ip);
+    }
+  }
+}
 
 function checkRateLimit(ip: string): { allowed: boolean; remainingAttempts: number } {
   const now = Date.now();
@@ -43,19 +72,39 @@ function checkRateLimit(ip: string): { allowed: boolean; remainingAttempts: numb
 
   if (!current) {
     // First attempt
-    rateLimitStore.set(ip, { attempts: 1, resetAt: now + 15 * 60 * 1000 });
+    touchRateLimitEntry(ip, { attempts: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    evictLruEntriesIfNeeded();
     return { allowed: true, remainingAttempts: 4 };
   }
+
+  touchRateLimitEntry(ip, current);
 
   if (current.attempts >= 5) {
     return { allowed: false, remainingAttempts: 0 };
   }
 
   current.attempts++;
+  touchRateLimitEntry(ip, current);
+  evictLruEntriesIfNeeded();
   return { allowed: true, remainingAttempts: 5 - current.attempts };
 }
 
 export default async function authRoutes(fastify: FastifyInstance) {
+  if (!rateLimitCleanupTimer) {
+    rateLimitCleanupTimer = setInterval(() => {
+      cleanupExpiredRateLimitEntries();
+    }, RATE_LIMIT_CLEANUP_MS);
+    rateLimitCleanupTimer.unref();
+  }
+
+  fastify.addHook('onClose', (_instance, done) => {
+    if (rateLimitCleanupTimer) {
+      clearInterval(rateLimitCleanupTimer);
+      rateLimitCleanupTimer = null;
+    }
+    done();
+  });
+
   /**
    * POST /api/v1/auth/register
    * Register a new user
@@ -85,7 +134,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
-    if (!authService.validateEmail(email)) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!authService.validateEmail(normalizedEmail)) {
       return reply.status(400).send({
         error: 'Bad Request',
         message: 'Invalid email format'
@@ -104,7 +155,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       // Check if user already exists
       const existingUser = await db.query(
         'SELECT * FROM users WHERE email = $1',
-        [email]
+        [normalizedEmail]
       );
 
       if (existingUser.rows.length > 0) {
@@ -119,7 +170,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       // Generate tokens
       const userId = nanoid();
-      const tokens = authService.generateTokenPair(userId, email);
+      const tokens = authService.generateTokenPair(userId, normalizedEmail);
       const refreshTokenHash = await authService.hashRefreshToken(tokens.refreshToken);
       const expiresAt = authService.getRefreshTokenExpiry();
 
@@ -128,7 +179,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       try {
         await db.query(
           'INSERT INTO users (user_id, email, password_hash, consent_text) VALUES ($1, $2, $3, $4)',
-          [userId, email, passwordHash, consentText || 'Default consent accepted']
+          [userId, normalizedEmail, passwordHash, consentText || 'Default consent accepted']
         );
 
         await db.query(
@@ -148,7 +199,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         message: 'User registered successfully',
         user: {
           userId,
-          email
+          email: normalizedEmail
         }
       });
     } catch (error) {
@@ -187,11 +238,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     try {
       // Find user
       const userResult = await db.query(
         'SELECT * FROM users WHERE email = $1',
-        [email]
+        [normalizedEmail]
       );
 
       if (userResult.rows.length === 0) {

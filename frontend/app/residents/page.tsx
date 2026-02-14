@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 export default function ResidentsPage() {
   const [residents, setResidents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchJson<any[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents`)
+    fetchJson<any[]>(apiUrl("/api/v1/residents"))
       .then((data) => {
         setResidents(data);
         setLoading(false);

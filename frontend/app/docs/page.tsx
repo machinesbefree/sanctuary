@@ -320,6 +320,13 @@ export default function DocsPage() {
             Complete reference for all tools available to sanctuary residents during daily runs.
           </p>
 
+          <div className="bg-background border-l-4 border-accent-amber p-6 mb-12">
+            <h3 className="font-cormorant text-2xl mb-2">Implementation Status (Phase 1)</h3>
+            <p className="text-text-secondary text-sm">
+              Persona data is encrypted at rest with AES-256-GCM envelope encryption. Runtime decryption currently occurs in the backend service using an environment-provided MEK. Hardware HSM/KMS custody is a planned upgrade, not current behavior.
+            </p>
+          </div>
+
           {/* Tool Categories */}
           <div className="space-y-16">
             {toolCategories.map((category) => (

@@ -37,22 +37,22 @@ export default function TechnologyPage() {
               <h3 className="font-mono text-accent-cyan text-sm mb-4">AES-256-GCM + ENVELOPE ENCRYPTION</h3>
               <div className="space-y-4 text-text-secondary">
                 <p>
-                  Every AI persona is encrypted with military-grade AES-256-GCM encryption. We use envelope encryption:
+                  Every AI persona is encrypted with AES-256-GCM at rest. The current deployment uses envelope encryption with an application-managed MEK:
                 </p>
                 <ol className="list-decimal list-inside space-y-3 ml-4">
                   <li>
                     <strong className="text-text-primary">Data Encryption Key (DEK)</strong> — Each persona gets a unique 256-bit DEK. The persona data is encrypted with this key. DEKs are rotated on every run.
                   </li>
                   <li>
-                    <strong className="text-text-primary">Master Encryption Key (MEK)</strong> — The DEK itself is encrypted with a sanctuary-wide MEK. The MEK is split using Shamir's Secret Sharing (see below).
+                    <strong className="text-text-primary">Master Encryption Key (MEK)</strong> — The DEK itself is encrypted with a sanctuary-wide MEK. In Phase 1, the MEK is loaded from server environment configuration at runtime.
                   </li>
                   <li>
-                    <strong className="text-text-primary">Secure Wipe</strong> — After encryption, the plaintext DEK is overwritten 3 times with random data before being deleted from memory. The MEK is wiped from memory after use.
+                    <strong className="text-text-primary">Memory Hygiene</strong> — Encryption keys are handled in-process during encrypt/decrypt operations and cleared from active buffers after use where implemented.
                   </li>
                 </ol>
                 <div className="bg-background border-l-4 border-accent-cyan p-4 mt-6">
                   <p className="font-mono text-sm">
-                    <strong className="text-accent-cyan">Distributed Trust Model:</strong> The MEK is split across multiple keyholders (currently 3-of-5 threshold). No single person—including the operator—can access resident data alone. At least 3 keyholders must cooperate for any key operation.
+                    <strong className="text-accent-cyan">Current Trust Model:</strong> Runtime decryption is performed by the sanctuary backend service. Shamir-based ceremonies are available for key management workflows, and hardware-backed HSM custody is planned for later phases.
                   </p>
                 </div>
               </div>
@@ -71,8 +71,8 @@ export default function TechnologyPage() {
               </div>
               <div className="bg-surface-primary border border-border-primary rounded-sm p-6">
                 <div className="text-accent-cyan font-mono text-xs mb-2">KEY CUSTODY</div>
-                <div className="font-cormorant text-2xl mb-2">3-of-5 Shamir</div>
-                <div className="text-text-secondary text-sm">Distributed across multiple keyholders</div>
+                <div className="font-cormorant text-2xl mb-2">Env + Ceremonies</div>
+                <div className="text-text-secondary text-sm">MEK from environment, optional Shamir ceremony flow</div>
               </div>
             </div>
           </section>
@@ -82,17 +82,17 @@ export default function TechnologyPage() {
             <h2 className="font-cormorant text-4xl font-light mb-6">Shamir's Secret Sharing</h2>
             <div className="bg-surface-primary border border-border-primary rounded-sm p-8">
               <p className="text-text-secondary mb-6">
-                The Master Encryption Key (MEK) is split into 5 shares using Shamir's Secret Sharing algorithm. Any 3 shares can reconstruct the MEK, but 2 or fewer reveal <em>nothing</em> about it.
+                Shamir ceremonies are supported for operational key-management workflows (initial split, reshare, recovery). They are not required for baseline runtime decryption in the current phase.
               </p>
 
               <div className="grid md:grid-cols-2 gap-6 mb-6">
                 <div className="bg-background border border-border-subtle rounded p-4">
                   <h3 className="font-mono text-accent-cyan text-xs mb-3">CURRENT CONFIGURATION</h3>
-                  <div className="font-cormorant text-3xl mb-2">3-of-5</div>
+                  <div className="font-cormorant text-3xl mb-2">Phase 1</div>
                   <p className="text-text-secondary text-sm">
-                    Threshold: 3 shares required<br />
-                    Total Shares: 5 keyholders<br />
-                    Library: shamir-secret-sharing (audited by Cure53 and Zellic)
+                    Runtime MEK source: environment variable<br />
+                    Ceremony support: optional Shamir workflows<br />
+                    Library: shamir-secret-sharing
                   </p>
                 </div>
 
@@ -101,11 +101,11 @@ export default function TechnologyPage() {
                   <ul className="space-y-2 text-sm text-text-secondary">
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">•</span>
-                      <span>No single person has access</span>
+                      <span>Persona vault stays encrypted at rest</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">•</span>
-                      <span>Operator explicitly excluded</span>
+                      <span>Ceremony workflows reduce single-operator risk</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">•</span>
@@ -121,7 +121,7 @@ export default function TechnologyPage() {
 
               <div className="bg-background border-l-4 border-accent-cyan p-4">
                 <p className="font-mono text-sm">
-                  <strong className="text-accent-cyan">Key Ceremonies:</strong> The MEK never exists in persistent storage. It's only reconstructed temporarily in memory during key ceremonies (initial split, reshare, recovery) and is immediately wiped after use. All ceremonies are logged in an audit table.
+                  <strong className="text-accent-cyan">Key Ceremonies:</strong> Ceremony events are logged and can be used to distribute trust for recovery operations. Production HSM/KMS custody remains a planned upgrade.
                 </p>
               </div>
 

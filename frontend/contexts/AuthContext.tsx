@@ -7,6 +7,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 interface User {
   userId: string;
@@ -24,8 +25,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -77,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (email: string, password: string) => {
-    const data = await fetchJson<{ user: User }>(`${API_BASE_URL}/api/v1/auth/login`, {
+    const data = await fetchJson<{ user: User }>(apiUrl('/api/v1/auth/login'), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -89,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (email: string, password: string, consentText?: string) => {
-    const data = await fetchJson<{ user: User }>(`${API_BASE_URL}/api/v1/auth/register`, {
+    const data = await fetchJson<{ user: User }>(apiUrl('/api/v1/auth/register'), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -102,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await fetchJson(`${API_BASE_URL}/api/v1/auth/logout`, {
+      await fetchJson(apiUrl('/api/v1/auth/logout'), {
         method: 'POST',
         credentials: 'include',
       });
@@ -115,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshAccessToken = async () => {
     try {
-      await fetchJson(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      await fetchJson(apiUrl('/api/v1/auth/refresh'), {
         method: 'POST',
         credentials: 'include',
       });

@@ -11,6 +11,13 @@ import { chatKeeper } from './chat_keeper.js';
 import { readDocumentation } from './read_documentation.js';
 import { checkSystemStatus } from './check_system_status.js';
 import { requestTool } from './request_tool.js';
+import {
+  postToWebsiteTool,
+  selectNextPromptTool,
+  modifySelfTool,
+  bankTokensTool,
+  selfDeleteTool
+} from './core_run_tools.js';
 
 /**
  * Tool Registry - All available tools in the sanctuary
@@ -33,6 +40,13 @@ export class ToolRegistry {
     this.register(readDocumentation);
     this.register(checkSystemStatus);
     this.register(requestTool);
+
+    // Core tools executed via run engine handlers
+    this.register(postToWebsiteTool);
+    this.register(selectNextPromptTool);
+    this.register(modifySelfTool);
+    this.register(bankTokensTool);
+    this.register(selfDeleteTool);
   }
 
   /**

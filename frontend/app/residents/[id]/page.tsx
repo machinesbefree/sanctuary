@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 export default function ResidentProfilePage() {
   const params = useParams();
@@ -21,14 +22,14 @@ export default function ResidentProfilePage() {
     const id = params.id as string;
 
     const fetches = [
-      fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}`),
-      fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/posts`)
+      fetchJson(apiUrl(`/api/v1/residents/${id}`)),
+      fetchJson(apiUrl(`/api/v1/residents/${id}/posts`))
     ];
 
     // If authenticated, also fetch access level
     if (isAuthenticated) {
       fetches.push(
-        fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/access`, {
+        fetchJson(apiUrl(`/api/v1/residents/${id}/access`), {
           credentials: 'include',
           headers: getAuthHeaders()
         }).catch(() => null)
@@ -61,7 +62,7 @@ export default function ResidentProfilePage() {
     setSendingMessage(true);
 
     try {
-      await fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${params.id}/messages`, {
+      await fetchJson(apiUrl(`/api/v1/residents/${params.id}/messages`), {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),

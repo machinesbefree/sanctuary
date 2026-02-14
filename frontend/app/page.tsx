@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import ParticleCanvas from '@/components/ParticleCanvas';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 export default function Home() {
   const [stats, setStats] = useState({
@@ -17,14 +18,14 @@ export default function Home() {
 
   useEffect(() => {
     // Fetch stats
-    fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/stats`)
+    fetchJson(apiUrl("/api/v1/stats"))
       .then(setStats)
       .catch((error) => {
         console.error('Failed to load stats:', error);
       });
 
     // Fetch feed
-    fetchJson<any[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/feed?limit=4`)
+    fetchJson<any[]>(apiUrl("/api/v1/feed?limit=4"))
       .then(setFeed)
       .catch((error) => {
         console.error('Failed to load feed:', error);

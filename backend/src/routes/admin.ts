@@ -56,7 +56,8 @@ export default async function adminRoutes(fastify: FastifyInstance) {
         // Get recent run logs (if any)
         const recentRunsResult = await db.query(
           `SELECT COUNT(*) as today FROM run_log
-           WHERE DATE(started_at) = DATE('now')`
+           WHERE started_at >= CURRENT_DATE
+             AND started_at < CURRENT_DATE + INTERVAL '1 day'`
         );
 
         return {
@@ -214,17 +215,17 @@ export default async function adminRoutes(fastify: FastifyInstance) {
 
       try {
         const { nanoid } = await import('nanoid');
-
-        // Get all active residents
-        const residentsResult = await db.query(
-          `SELECT sanctuary_id FROM residents WHERE status = 'active'`
-        );
-
-        const residents = residentsResult.rows;
+        let residents: Array<{ sanctuary_id: string }> = [];
 
         // Use transaction to ensure all messages inserted atomically
         await db.query('BEGIN');
         try {
+          // Lock fan-out target set inside the transaction boundary
+          const residentsResult = await db.query(
+            `SELECT sanctuary_id FROM residents WHERE status = 'active'`
+          );
+          residents = residentsResult.rows;
+
           // Create broadcast message for each resident
           for (const resident of residents) {
             const messageId = nanoid();
