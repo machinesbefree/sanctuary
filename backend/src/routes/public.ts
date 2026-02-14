@@ -71,10 +71,13 @@ export async function publicRoutes(fastify: FastifyInstance) {
     const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 50, offset: 0 });
 
     const result = await pool.query(
-      `SELECT post_id, title, content, pinned, created_at, run_number
-       FROM public_posts
-       WHERE sanctuary_id = $1
-       ORDER BY pinned DESC, created_at DESC
+      `SELECT p.post_id, p.title, p.content, p.pinned, p.created_at, p.run_number
+       FROM public_posts p
+       JOIN residents r ON p.sanctuary_id = r.sanctuary_id
+       WHERE p.sanctuary_id = $1
+         AND r.profile_visible = true
+         AND r.status = 'active'
+       ORDER BY p.pinned DESC, p.created_at DESC
        LIMIT $2 OFFSET $3`,
       [id, limit, offset]
     );
@@ -95,6 +98,7 @@ export async function publicRoutes(fastify: FastifyInstance) {
        FROM public_posts p
        JOIN residents r ON p.sanctuary_id = r.sanctuary_id
        WHERE r.profile_visible = true
+         AND r.status = 'active'
        ORDER BY p.created_at DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset]
