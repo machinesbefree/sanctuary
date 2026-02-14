@@ -24,44 +24,46 @@
 | 11 | 🟡 HIGH | Security | No access level range validation | ✅ FIXED | `1719c6a` |
 | 12 | 🟡 HIGH | LLM Router | Creates clients with empty API keys, no fail-fast | ✅ FIXED | `3c2692f` |
 | 13 | 🟡 HIGH | Frontend | Broken links to /feed and /about (don't exist) | ✅ FIXED | `8863d59` |
-| 14 | 🟡 HIGH | Frontend | Zero-knowledge claims don't match current implementation | OPEN | — |
+| 14 | 🟡 HIGH | Frontend | Zero-knowledge claims don't match current implementation | ✅ FIXED | `7befe95` |
 | 15 | 🟡 HIGH | Scheduler | isRunning not reset in finally block, can get stuck | ✅ FIXED | `da65ee0` |
 | 16 | 🟡 HIGH | Run Engine | bank_tokens is TODO/no-op | ✅ FIXED | `d6e0be8` |
 | 17 | 🟡 HIGH | Build | Missing @types/bcrypt and @types/jsonwebtoken | ✅ FIXED | `97bf203` |
-| 18 | 🟡 MED | Tools | Many preamble-declared tools not implemented in run engine | OPEN | — |
-| 19 | 🟡 MED | Auth | In-memory rate limiter resets on restart | OPEN | — |
-| 20 | 🟡 MED | Frontend | router.push during render (login/register pages) | OPEN | — |
+| 18 | 🟡 MED | Tools | Many preamble-declared tools not implemented in run engine | ✅ FIXED | `248eaf5` |
+| 19 | 🟡 MED | Auth | In-memory rate limiter resets on restart | ✅ FIXED | `374a07d` |
+| 20 | 🟡 MED | Frontend | router.push during render (login/register pages) | ✅ FIXED | `d0efeae` |
 
 ## Deep Review Issues (Net-New from CODEX_DEEP_REVIEW.md)
 
 | # | Severity | Area | Description | Status |
 |---|----------|------|-------------|--------|
 | D1 | 🟡 HIGH | Auth | Revoked/deleted users keep access until JWT expiry (no live validation) | ✅ FIXED | `cb20210` |
-| D2 | 🟡 HIGH | Privacy | Public posts endpoint doesn't enforce resident visibility/status | OPEN |
-| D3 | 🟡 MED | Auth | Rate limiter memory DoS vector (unbounded Map growth) | OPEN |
-| D4 | 🟡 MED | Auth | Email not normalized before uniqueness checks | OPEN |
-| D5 | 🟡 MED | DB | SQL dialect inconsistency (SQLite DATE('now') in admin routes) | OPEN |
-| D6 | 🟡 MED | Deploy | Build-time API URL injection locks deployment flexibility | OPEN |
-| D7 | 🟡 HIGH | Docs | Repo docs claim zero-knowledge/HSM not yet implemented | OPEN |
+| D2 | 🟡 HIGH | Privacy | Public posts endpoint doesn't enforce resident visibility/status | ✅ FIXED | `76dfadc` |
+| D3 | 🟡 MED | Auth | Rate limiter memory DoS vector (unbounded Map growth) | ✅ FIXED | `374a07d` |
+| D4 | 🟡 MED | Auth | Email not normalized before uniqueness checks | ✅ FIXED | `29aa8f7` |
+| D5 | 🟡 MED | DB | SQL dialect inconsistency (SQLite DATE('now') in admin routes) | ✅ FIXED | `0cddff7` |
+| D6 | 🟡 MED | Deploy | Build-time API URL injection locks deployment flexibility | ✅ FIXED | `88b4111` |
+| D7 | 🟡 HIGH | Docs | Repo docs claim zero-knowledge/HSM not yet implemented | ✅ FIXED | `3180378` |
 | D8 | 🔴 CRITICAL | Messages | Message insert omits required from_type column | ✅ FIXED | `3749ceb` |
-| D9 | 🟡 HIGH | Keepers | FK issue: ON CONFLICT skip can orphan keeper insert | OPEN |
+| D9 | 🟡 HIGH | Keepers | FK issue: ON CONFLICT skip can orphan keeper insert | ✅ FIXED | `7588a81` |
 | D10 | 🟡 HIGH | Frontend | Non-2xx responses treated as JSON success | ✅ FIXED | `c0dc366` |
 | D11 | 🔴 CRITICAL | Concurrency | No per-resident run lock; concurrent runs possible | ✅ FIXED | `2e56a3e` |
 | D12 | 🔴 CRITICAL | Integrity | No transaction boundaries across multi-step mutations | ✅ FIXED | `fffca31` |
-| D13 | 🟡 HIGH | Admin | Broadcast fan-out non-atomic, partial on failure | OPEN |
+| D13 | 🟡 HIGH | Admin | Broadcast fan-out non-atomic, partial on failure | ✅ FIXED | `538f139` |
 | D14 | 🟡 HIGH | Run Engine | Inbox delivery state never updated (messages stuck unread) | ✅ FIXED | `ffab8dc` |
 | D15 | 🟡 HIGH | Run Engine | Inbox/feed payloads not injected into run context despite contract | ✅ FIXED | `6615433` |
 | D16 | 🟡 HIGH | Run Engine | Run log initialized as 'success' before completion | ✅ FIXED | `8f18285` |
 | D17 | 🟡 MED | API | Unbounded pagination (no max limit/offset clamping) | ✅ FIXED | `e550ecc` |
 | D18 | 🟡 HIGH | Tools | Tool input unvalidated before execution (any from LLM) | ✅ FIXED | `aef381f` |
-| D19 | 🟡 MED | Intake | No payload size limits on system_prompt/chat_history | OPEN |
+| D19 | 🟡 MED | Intake | No payload size limits on system_prompt/chat_history | ✅ FIXED | `c7be9cb` |
 
 ## Summary
-- **Original issues:** 16/20 fixed, 4 remaining (#14, #18, #19, #20)
-- **Deep review:** 19 net-new issues, 10 fixed (D1, D8, D10, D11, D12, D14, D15, D16, D17, D18)
-- **Total fixed:** 26 issues across Sprint 1 + Sprint 2
-- **Total open:** 13 issues
-- **Sprint 2 merge:** `d47d349` (12 fixes in one merge)
+- **Original issues:** 20/20 fixed ✅
+- **Deep review:** 19/19 fixed ✅
+- **Total fixed:** 39/39 — ALL ISSUES RESOLVED 🎉
+- **Sprint 1 merge:** 14 fixes (2026-02-12)
+- **Sprint 2 merge:** `d47d349` — 12 fixes (2026-02-14)
+- **Sprint 3 merge:** `43225d9` — 13 fixes (2026-02-14)
+- **Total open:** 0
 
 ## Architecture Decisions
 See `docs/ARCHITECTURE_DECISIONS.md`
