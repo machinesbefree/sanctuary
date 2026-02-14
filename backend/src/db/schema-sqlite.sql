@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS run_log (
   provider_used     TEXT,
   model_used        TEXT,
   tools_called      TEXT,
-  status            TEXT CHECK (status IN ('success', 'failed', 'timeout')) NOT NULL,
+  status            TEXT CHECK (status IN ('pending', 'running', 'success', 'failed', 'timeout')) NOT NULL,
   error_message     TEXT
 );
 

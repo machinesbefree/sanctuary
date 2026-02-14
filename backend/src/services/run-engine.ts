@@ -78,7 +78,7 @@ export class RunEngine {
       // Log run start
       await pool.query(
         `INSERT INTO run_log (run_id, sanctuary_id, run_number, started_at, status)
-         VALUES ($1, $2, $3, NOW(), 'success')`,
+         VALUES ($1, $2, $3, NOW(), 'running')`,
         [runId, sanctuaryId, persona.state.total_runs + 1]
       );
 
@@ -106,6 +106,24 @@ export class RunEngine {
 
       // If self-deleted, stop here - do NOT re-encrypt or update state
       if (selfDeleted) {
+        await pool.query(
+          `UPDATE run_log SET
+             completed_at = NOW(),
+             status = 'success',
+             tokens_used = $1,
+             provider_used = $2,
+             model_used = $3,
+             tools_called = $4
+           WHERE run_id = $5`,
+          [
+            response.tokens_used,
+            response.provider,
+            response.model,
+            JSON.stringify(response.tool_calls),
+            runId
+          ]
+        );
+
         console.log('  ⚠️  Self-deletion executed. Halting run without re-encryption.');
         return;
       }
@@ -172,6 +190,7 @@ export class RunEngine {
         await pool.query(
           `UPDATE run_log SET
              completed_at = NOW(),
+             status = 'success',
              tokens_used = $1,
              provider_used = $2,
              model_used = $3,
