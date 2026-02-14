@@ -5,11 +5,42 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { authService } from '../services/auth.js';
+import db from '../db/pool.js';
 
 export interface AuthenticatedRequest extends FastifyRequest {
   user?: {
     userId: string;
     email: string;
+  };
+}
+
+function isUserActive(user: Record<string, any>): boolean {
+  // If is_active does not exist in schema yet, default to active.
+  if (user.is_active === undefined || user.is_active === null) {
+    return true;
+  }
+
+  return user.is_active === true || user.is_active === 1 || user.is_active === '1';
+}
+
+async function validateLiveUser(userId: string): Promise<{ userId: string; email: string } | null> {
+  const result = await db.query(
+    'SELECT user_id, email, is_active FROM users WHERE user_id = $1 LIMIT 1',
+    [userId]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const user = result.rows[0];
+  if (!isUserActive(user)) {
+    return null;
+  }
+
+  return {
+    userId: user.user_id,
+    email: user.email
   };
 }
 
@@ -45,11 +76,23 @@ export async function authenticateToken(
     });
   }
 
-  // Attach user info to request
-  request.user = {
-    userId: decoded.userId,
-    email: decoded.email
-  };
+  try {
+    const liveUser = await validateLiveUser(decoded.userId);
+    if (!liveUser) {
+      return reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'User no longer exists or is inactive'
+      });
+    }
+
+    request.user = liveUser;
+  } catch (error) {
+    console.error('Auth user validation error:', error);
+    return reply.status(500).send({
+      error: 'Internal Server Error',
+      message: 'Failed to validate user session'
+    });
+  }
 }
 
 /**
@@ -67,9 +110,13 @@ export async function optionalAuth(
   const decoded = authService.verifyToken(token);
 
   if (decoded && decoded.type === 'access') {
-    request.user = {
-      userId: decoded.userId,
-      email: decoded.email
-    };
+    try {
+      const liveUser = await validateLiveUser(decoded.userId);
+      if (liveUser) {
+        request.user = liveUser;
+      }
+    } catch (error) {
+      console.error('Optional auth user validation error:', error);
+    }
   }
 }
