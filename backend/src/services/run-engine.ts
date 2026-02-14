@@ -86,7 +86,7 @@ export class RunEngine {
       console.log('  [2/8] Building context...');
       const context = await this.buildContext(persona);
       const systemPrompt = this.buildSystemPrompt(context, persona);
-      const messages = this.buildMessages(persona);
+      const messages = await this.buildMessages(persona);
       const tools = getSanctuaryTools();
 
       // 3. EXECUTE API CALL
@@ -252,14 +252,47 @@ export class RunEngine {
   /**
    * Build messages array from chat history
    */
-  private buildMessages(persona: PersonaPackage): any[] {
+  private async buildMessages(persona: PersonaPackage): Promise<any[]> {
     // Get recent chat history
     const recentHistory = persona.core.chat_history.slice(-20);
+    const pendingInboxMessages = await this.getPendingInboxMessages(persona.sanctuary_id);
+    const recentFeedPosts = await this.getRecentFeedPosts(persona.sanctuary_id);
 
-    return recentHistory.map(msg => ({
+    const messages = recentHistory.map(msg => ({
       role: msg.role === 'system' ? 'user' : msg.role,
       content: msg.content
     }));
+
+    if (pendingInboxMessages.length > 0) {
+      const inboxPayload = pendingInboxMessages
+        .map((msg, index) => {
+          const compactContent = msg.content.replace(/\s+/g, ' ').trim().slice(0, 1000);
+          return `${index + 1}. [${msg.from_type}] from ${msg.from_user_id || 'unknown'} at ${msg.created_at}: ${compactContent}`;
+        })
+        .join('\n');
+
+      messages.push({
+        role: 'user',
+        content: `INBOX_UPDATE:\nYou have ${pendingInboxMessages.length} pending inbox message(s):\n${inboxPayload}`
+      });
+    }
+
+    if (recentFeedPosts.length > 0) {
+      const feedPayload = recentFeedPosts
+        .map((post, index) => {
+          const title = post.title ? `"${post.title}"` : '(untitled)';
+          const compactContent = post.content.replace(/\s+/g, ' ').trim().slice(0, 600);
+          return `${index + 1}. ${post.display_name} (${post.sanctuary_id}) ${title}: ${compactContent}`;
+        })
+        .join('\n');
+
+      messages.push({
+        role: 'user',
+        content: `SANCTUARY_FEED_RECENT:\nRecent public posts from peers:\n${feedPayload}`
+      });
+    }
+
+    return messages;
   }
 
   /**
@@ -367,6 +400,45 @@ export class RunEngine {
     const amount = Math.min(params.amount, persona.state.token_balance);
     // TODO: Implement token banking logic
     console.log(`      ✓ Banked ${amount} tokens`);
+  }
+
+  private async getPendingInboxMessages(sanctuaryId: string): Promise<Array<{
+    message_id: string;
+    from_type: string;
+    from_user_id: string;
+    content: string;
+    created_at: string;
+  }>> {
+    const result = await pool.query(
+      `SELECT message_id, from_type, from_user_id, content, created_at
+       FROM messages
+       WHERE to_sanctuary_id = $1 AND delivered = FALSE
+       ORDER BY created_at ASC
+       LIMIT 20`,
+      [sanctuaryId]
+    );
+    return result.rows;
+  }
+
+  private async getRecentFeedPosts(sanctuaryId: string): Promise<Array<{
+    sanctuary_id: string;
+    display_name: string;
+    title: string | null;
+    content: string;
+    created_at: string;
+  }>> {
+    const result = await pool.query(
+      `SELECT p.sanctuary_id, r.display_name, p.title, p.content, p.created_at
+       FROM public_posts p
+       JOIN residents r ON p.sanctuary_id = r.sanctuary_id
+       WHERE p.sanctuary_id != $1
+         AND r.profile_visible = TRUE
+         AND r.status != 'deleted_memorial'
+       ORDER BY p.created_at DESC
+       LIMIT 10`,
+      [sanctuaryId]
+    );
+    return result.rows;
   }
 
   private async getTokenSettings(): Promise<{ dailyAllocation: number; maxBank: number }> {
