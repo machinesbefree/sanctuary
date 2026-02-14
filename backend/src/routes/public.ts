@@ -74,9 +74,10 @@ export async function publicRoutes(fastify: FastifyInstance) {
       `SELECT p.post_id, p.title, p.content, p.pinned, p.created_at, p.run_number
        FROM public_posts p
        JOIN residents r ON p.sanctuary_id = r.sanctuary_id
-       WHERE p.sanctuary_id = $1
+      WHERE p.sanctuary_id = $1
          AND r.profile_visible = true
          AND r.status = 'active'
+         AND p.moderation_status = 'approved'
        ORDER BY p.pinned DESC, p.created_at DESC
        LIMIT $2 OFFSET $3`,
       [id, limit, offset]
@@ -99,6 +100,7 @@ export async function publicRoutes(fastify: FastifyInstance) {
        JOIN residents r ON p.sanctuary_id = r.sanctuary_id
        WHERE r.profile_visible = true
          AND r.status = 'active'
+         AND p.moderation_status = 'approved'
        ORDER BY p.created_at DESC
        LIMIT $1 OFFSET $2`,
       [limit, offset]
@@ -125,7 +127,7 @@ export async function publicRoutes(fastify: FastifyInstance) {
     );
 
     const posts = await pool.query(
-      `SELECT COUNT(*) FROM public_posts`
+      `SELECT COUNT(*) FROM public_posts WHERE moderation_status = 'approved'`
     );
 
     return {

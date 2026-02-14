@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS public_posts (
   title             TEXT,
   content           TEXT NOT NULL,
   pinned            BOOLEAN DEFAULT FALSE,
+  moderation_status TEXT CHECK (moderation_status IN ('approved', 'flagged', 'removed')) NOT NULL DEFAULT 'approved',
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   run_number        INTEGER NOT NULL
 );

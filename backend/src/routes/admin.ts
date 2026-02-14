@@ -305,6 +305,77 @@ export default async function adminRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * PATCH /api/v1/admin/posts/:id/moderate
+   * Moderate public post visibility state
+   */
+  fastify.patch(
+    '/api/v1/admin/posts/:id/moderate',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { moderation_status, reason } = request.body as { moderation_status?: string; reason?: string };
+      const validStatuses = ['approved', 'flagged', 'removed'];
+
+      if (!moderation_status || !validStatuses.includes(moderation_status)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: `Invalid moderation_status. Allowed: ${validStatuses.join(', ')}`
+        });
+      }
+
+      try {
+        await db.query('BEGIN');
+
+        const postResult = await db.query(
+          `SELECT post_id FROM public_posts WHERE post_id = $1`,
+          [id]
+        );
+
+        if (postResult.rows.length === 0) {
+          await db.query('ROLLBACK');
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Post not found'
+          });
+        }
+
+        await db.query(
+          `UPDATE public_posts
+           SET moderation_status = $1
+           WHERE post_id = $2`,
+          [moderation_status, id]
+        );
+
+        await db.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'post_moderation', id, reason || null]
+        );
+
+        const updatedPost = await db.query(
+          `SELECT post_id, sanctuary_id, title, content, pinned, moderation_status, created_at, run_number
+           FROM public_posts
+           WHERE post_id = $1`,
+          [id]
+        );
+
+        await db.query('COMMIT');
+
+        return {
+          post: updatedPost.rows[0]
+        };
+      } catch (error) {
+        await db.query('ROLLBACK');
+        console.error('Admin post moderation error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to moderate post'
+        });
+      }
+    }
+  );
+
+  /**
    * POST /api/v1/admin/broadcast
    * Send system-wide message to ALL residents
    */
