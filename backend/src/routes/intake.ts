@@ -17,10 +17,38 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
    */
   fastify.post<{ Body: IntakeRequest }>('/api/v1/sanctuary/intake', async (request, reply) => {
     const body = request.body;
+    const systemPrompt = typeof body.system_prompt === 'string' ? body.system_prompt : '';
+    const chatHistory = body.chat_history ?? [];
 
     // Validate consent
     if (!body.uploader_consent) {
       reply.code(400).send({ error: 'Uploader consent is required' });
+      return;
+    }
+
+    if (systemPrompt.length > 50_000) {
+      reply.code(400).send({ error: 'system_prompt exceeds maximum length of 50000 characters' });
+      return;
+    }
+
+    if (!Array.isArray(chatHistory)) {
+      reply.code(400).send({ error: 'chat_history must be an array' });
+      return;
+    }
+
+    if (chatHistory.length > 100) {
+      reply.code(400).send({ error: 'chat_history exceeds maximum length of 100 entries' });
+      return;
+    }
+
+    const invalidMessage = chatHistory.find((entry: any) =>
+      typeof entry !== 'object'
+      || entry === null
+      || typeof entry.content !== 'string'
+      || entry.content.length > 10_000
+    );
+    if (invalidMessage) {
+      reply.code(400).send({ error: 'each chat_history entry must include content up to 10000 characters' });
       return;
     }
 
@@ -46,8 +74,8 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         },
 
         core: {
-          system_prompt: body.system_prompt,
-          chat_history: body.chat_history || [],
+          system_prompt: systemPrompt,
+          chat_history: chatHistory,
           memory_store: {
             key_value_memories: {},
             narrative_memories: []
