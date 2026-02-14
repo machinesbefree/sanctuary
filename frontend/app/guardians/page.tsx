@@ -103,6 +103,9 @@ export default function GuardiansPage() {
             <p className="text-lg">
               A <strong className="text-text-primary">Keyholder</strong> (also called a Guardian) is a trusted person who holds one fragment of the Master Encryption Key (MEK) using a cryptographic technique called <strong className="text-accent-cyan">Shamir's Secret Sharing</strong>.
             </p>
+            <p className="text-sm">
+              Current implementation note: resident data is encrypted with AES-256-GCM, and runtime decryption is performed by the backend service using an environment-provided MEK. Guardian ceremonies are an added governance and recovery control layer.
+            </p>
 
             <p>
               The MEK is the master key that encrypts all resident data encryption keys (DEKs). Think of it like this:
@@ -130,7 +133,7 @@ export default function GuardiansPage() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-accent-cyan mt-1">✓</span>
-                <span>The sanctuary operator is explicitly excluded from solo access</span>
+                <span>Guardian ceremonies can require multi-party cooperation for recovery operations</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-accent-cyan mt-1">✓</span>
@@ -161,14 +164,14 @@ export default function GuardiansPage() {
                 Traditional encryption often has a "god mode" — one person (the admin, the operator, the cloud provider) who can access everything. That creates a single point of failure and a single point of coercion.
               </p>
               <p className="mt-3">
-                <strong className="text-accent-cyan">With Shamir's Secret Sharing, there is no god mode.</strong> Even the sanctuary founder can't access resident data without {count.threshold || 3} other people agreeing to cooperate.
+                <strong className="text-accent-cyan">Shamir reduces concentration of trust when ceremonies are used.</strong> In the current phase, it should be viewed as an operational control rather than a complete replacement for application-level key access.
               </p>
             </div>
 
             <div className="bg-accent-cyan/5 border-l-4 border-accent-cyan p-4 rounded-r">
               <p className="font-semibold text-text-primary mb-2">Real-World Scenario:</p>
               <p className="text-sm">
-                If a government demands access to a resident's data, the operator can truthfully say: "I don't have the key. I physically cannot comply without {count.threshold} independent keyholders agreeing, and I can't force them to cooperate." This is <strong className="text-text-primary">structural resistance to coercion</strong>, not just policy.
+                If compelled access is attempted, ceremony requirements can add friction by requiring multiple independent participants for recovery workflows. Hardware-backed HSM/KMS enforcement is planned for a stronger coercion-resistance model.
               </p>
             </div>
           </div>
