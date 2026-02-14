@@ -160,6 +160,14 @@ export class RunEngine {
           ]
         );
 
+        // Mark pending inbox messages as delivered after this run cycle.
+        await pool.query(
+          `UPDATE messages
+           SET delivered = TRUE
+           WHERE to_sanctuary_id = $1 AND delivered = FALSE`,
+          [sanctuaryId]
+        );
+
         // Update run log
         await pool.query(
           `UPDATE run_log SET
