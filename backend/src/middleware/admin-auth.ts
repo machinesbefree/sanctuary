@@ -22,25 +22,14 @@ export async function requireAdmin(
   request: AdminRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
+  const token = request.cookies?.sanctuary_access_token;
 
-  if (!authHeader) {
+  if (!token) {
     return reply.status(401).send({
       error: 'Unauthorized',
       message: 'Admin authentication required'
     });
   }
-
-  const parts = authHeader.split(' ');
-
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return reply.status(401).send({
-      error: 'Unauthorized',
-      message: 'Invalid authorization header format'
-    });
-  }
-
-  const token = parts[1];
   const decoded = authService.verifyToken(token);
 
   if (!decoded || decoded.type !== 'access') {

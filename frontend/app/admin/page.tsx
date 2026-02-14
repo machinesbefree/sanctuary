@@ -34,9 +34,11 @@ export default function AdminDashboardPage() {
     try {
       const [dashResponse, residentsResponse] = await Promise.all([
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/dashboard`, {
+          credentials: 'include',
           headers: getAuthHeaders()
         }),
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/residents`, {
+          credentials: 'include',
           headers: getAuthHeaders()
         })
       ]);
@@ -67,6 +69,7 @@ export default function AdminDashboardPage() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/broadcast`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           subject: broadcastSubject,

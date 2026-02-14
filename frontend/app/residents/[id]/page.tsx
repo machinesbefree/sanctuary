@@ -28,6 +28,7 @@ export default function ResidentProfilePage() {
     if (isAuthenticated) {
       fetches.push(
         fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${id}/access`, {
+          credentials: 'include',
           headers: getAuthHeaders()
         }).then(r => r.json()).catch(() => null)
       );
@@ -61,6 +62,7 @@ export default function ResidentProfilePage() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/residents/${params.id}/messages`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({ content: message })
       });

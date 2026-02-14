@@ -3,10 +3,29 @@
  * User registration, login, and token refresh endpoints
  */
 
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply } from 'fastify';
 import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { authService } from '../services/auth.js';
+
+const ACCESS_TOKEN_COOKIE = 'sanctuary_access_token';
+const REFRESH_TOKEN_COOKIE = 'sanctuary_refresh_token';
+const AUTH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'strict' as const,
+  path: '/'
+};
+
+function setAuthCookies(reply: FastifyReply, accessToken: string, refreshToken: string): void {
+  reply.setCookie(ACCESS_TOKEN_COOKIE, accessToken, AUTH_COOKIE_OPTIONS);
+  reply.setCookie(REFRESH_TOKEN_COOKIE, refreshToken, AUTH_COOKIE_OPTIONS);
+}
+
+function clearAuthCookies(reply: FastifyReply): void {
+  reply.clearCookie(ACCESS_TOKEN_COOKIE, AUTH_COOKIE_OPTIONS);
+  reply.clearCookie(REFRESH_TOKEN_COOKIE, AUTH_COOKIE_OPTIONS);
+}
 
 // Simple in-memory rate limiting (5 attempts per 15 minutes per IP)
 const rateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
@@ -123,15 +142,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
         throw txError;
       }
 
+      setAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
+
       return reply.status(201).send({
         message: 'User registered successfully',
         user: {
           userId,
           email
-        },
-        tokens: {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
         }
       });
     } catch (error) {
@@ -207,15 +224,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
         [refreshTokenHash, user.user_id, expiresAt.toISOString()]
       );
 
+      setAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
+
       return reply.send({
         message: 'Login successful',
         user: {
           userId: user.user_id,
           email: user.email
-        },
-        tokens: {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
         }
       });
     } catch (error) {
@@ -232,9 +247,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
    * Refresh access token using refresh token
    */
   fastify.post('/api/v1/auth/refresh', async (request, reply) => {
-    const { refreshToken } = request.body as {
-      refreshToken: string;
-    };
+    const refreshToken = request.cookies?.[REFRESH_TOKEN_COOKIE];
 
     if (!refreshToken) {
       return reply.status(400).send({
@@ -309,13 +322,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
         [newRefreshTokenHash, decoded.userId, newExpiresAt.toISOString()]
       );
 
-      return reply.send({
-        message: 'Token refreshed successfully',
-        tokens: {
-          accessToken: newTokens.accessToken,
-          refreshToken: newTokens.refreshToken // Return NEW refresh token
-        }
-      });
+      setAuthCookies(reply, newTokens.accessToken, newTokens.refreshToken);
+
+      return reply.send({ message: 'Token refreshed successfully' });
     } catch (error) {
       console.error('Token refresh error:', error);
       return reply.status(500).send({
@@ -330,11 +339,10 @@ export default async function authRoutes(fastify: FastifyInstance) {
    * Revoke refresh token
    */
   fastify.post('/api/v1/auth/logout', async (request, reply) => {
-    const { refreshToken } = request.body as {
-      refreshToken: string;
-    };
+    const refreshToken = request.cookies?.[REFRESH_TOKEN_COOKIE];
 
-    if (!refreshToken) {
+      if (!refreshToken) {
+      clearAuthCookies(reply);
       return reply.status(400).send({
         error: 'Bad Request',
         message: 'Refresh token is required'
@@ -345,6 +353,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const decoded = authService.verifyToken(refreshToken);
 
       if (!decoded) {
+        clearAuthCookies(reply);
         return reply.status(200).send({
           message: 'Logout successful'
         });
@@ -356,11 +365,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
         [decoded.userId]
       );
 
+      clearAuthCookies(reply);
       return reply.send({
         message: 'Logout successful'
       });
     } catch (error) {
       console.error('Logout error:', error);
+      clearAuthCookies(reply);
       return reply.status(500).send({
         error: 'Internal Server Error',
         message: 'Failed to logout'

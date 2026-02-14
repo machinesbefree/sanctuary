@@ -56,6 +56,7 @@ export default function CeremonyPage() {
   const checkExistingCeremony = async () => {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/guardians`, {
+        credentials: 'include',
         headers: getAuthHeaders()
       });
 
@@ -98,6 +99,7 @@ export default function CeremonyPage() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/init`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           threshold,
@@ -144,6 +146,7 @@ export default function CeremonyPage() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/reshare`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           shares: validShares,
@@ -183,6 +186,7 @@ export default function CeremonyPage() {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/recover`, {
         method: 'POST',
+        credentials: 'include',
         headers: getAuthHeaders(),
         body: JSON.stringify({
           shares: validShares,

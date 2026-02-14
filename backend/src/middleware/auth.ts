@@ -15,31 +15,20 @@ export interface AuthenticatedRequest extends FastifyRequest {
 
 /**
  * Middleware to authenticate JWT tokens
- * Expects token in Authorization header: "Bearer <token>"
+ * Expects token in httpOnly cookie: sanctuary_access_token
  */
 export async function authenticateToken(
   request: AuthenticatedRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
+  const token = request.cookies?.sanctuary_access_token;
 
-  if (!authHeader) {
+  if (!token) {
     return reply.status(401).send({
       error: 'Unauthorized',
-      message: 'No authorization token provided'
+      message: 'No authentication token provided'
     });
   }
-
-  const parts = authHeader.split(' ');
-
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return reply.status(401).send({
-      error: 'Unauthorized',
-      message: 'Invalid authorization header format. Use: Bearer <token>'
-    });
-  }
-
-  const token = parts[1];
   const decoded = authService.verifyToken(token);
 
   if (!decoded) {
@@ -70,19 +59,11 @@ export async function optionalAuth(
   request: AuthenticatedRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const authHeader = request.headers.authorization;
+  const token = request.cookies?.sanctuary_access_token;
 
-  if (!authHeader) {
+  if (!token) {
     return; // No token provided, continue without user
   }
-
-  const parts = authHeader.split(' ');
-
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    return; // Invalid format, continue without user
-  }
-
-  const token = parts[1];
   const decoded = authService.verifyToken(token);
 
   if (decoded && decoded.type === 'access') {
