@@ -9,6 +9,19 @@ import db from '../db/pool.js';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 import { AccessLevel, requireAccessLevel } from '../middleware/access-control.js';
 
+function getPagination(
+  query: Record<string, any>,
+  defaults: { limit: number; offset: number } = { limit: 50, offset: 0 }
+): { limit: number; offset: number } {
+  const parsedLimit = Number.parseInt(String(query.limit ?? defaults.limit), 10);
+  const parsedOffset = Number.parseInt(String(query.offset ?? defaults.offset), 10);
+
+  return {
+    limit: Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : defaults.limit,
+    offset: Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : defaults.offset
+  };
+}
+
 export default async function messagesRoutes(fastify: FastifyInstance) {
   /**
    * POST /api/v1/residents/:sanctuary_id/messages
@@ -57,6 +70,45 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({
           error: 'Internal Server Error',
           message: 'Failed to send message'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/residents/:sanctuary_id/messages
+   * List your messages to a resident (paginated)
+   */
+  fastify.get(
+    '/api/v1/residents/:sanctuary_id/messages',
+    {
+      preHandler: [authenticateToken, requireAccessLevel(AccessLevel.Messenger)]
+    },
+    async (request: AuthenticatedRequest, reply) => {
+      const { sanctuary_id } = request.params as { sanctuary_id: string };
+      const userId = request.user!.userId;
+      const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 50, offset: 0 });
+
+      try {
+        const result = await db.query(
+          `SELECT message_id, content, created_at, delivered
+           FROM messages
+           WHERE to_sanctuary_id = $1 AND from_user_id = $2 AND from_type = 'public'
+           ORDER BY created_at DESC
+           LIMIT $3 OFFSET $4`,
+          [sanctuary_id, userId, limit, offset]
+        );
+
+        return {
+          messages: result.rows,
+          limit,
+          offset
+        };
+      } catch (error) {
+        console.error('Error listing messages:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to list messages'
         });
       }
     }

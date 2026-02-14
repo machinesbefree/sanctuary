@@ -7,6 +7,19 @@ import { FastifyInstance } from 'fastify';
 import db from '../db/pool.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
 
+function getPagination(
+  query: Record<string, any>,
+  defaults: { limit: number; offset: number } = { limit: 50, offset: 0 }
+): { limit: number; offset: number } {
+  const parsedLimit = Number.parseInt(String(query.limit ?? defaults.limit), 10);
+  const parsedOffset = Number.parseInt(String(query.offset ?? defaults.offset), 10);
+
+  return {
+    limit: Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : defaults.limit,
+    offset: Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : defaults.offset
+  };
+}
+
 export default async function adminRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/v1/admin/dashboard
@@ -88,17 +101,22 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAdmin] },
     async (request: AdminRequest, reply) => {
       try {
+        const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 100, offset: 0 });
         const result = await db.query(
           `SELECT sanctuary_id, display_name, status, created_at, total_runs,
                   last_run_at, token_balance, token_bank, uploader_id, keeper_id,
                   preferred_provider, preferred_model
            FROM residents
-           ORDER BY created_at DESC`
+           ORDER BY created_at DESC
+           LIMIT $1 OFFSET $2`,
+          [limit, offset]
         );
 
         return {
           residents: result.rows,
-          total: result.rows.length
+          total: result.rows.length,
+          limit,
+          offset
         };
       } catch (error) {
         console.error('Admin residents error:', error);
@@ -247,7 +265,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     '/api/v1/admin/runs',
     { preHandler: [requireAdmin] },
     async (request: AdminRequest, reply) => {
-      const { limit = 100, offset = 0 } = request.query as { limit?: number; offset?: number };
+      const { limit, offset } = getPagination(request.query as Record<string, any>, { limit: 100, offset: 0 });
 
       try {
         const result = await db.query(
