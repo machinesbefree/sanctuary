@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 interface Guardian {
   id: string;
@@ -34,7 +35,7 @@ export default function GuardiansPage() {
 
   const loadGuardians = async () => {
     try {
-      const data = await fetchJson<{ guardians?: Guardian[]; count?: GuardianCount }>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/guardians`);
+      const data = await fetchJson<{ guardians?: Guardian[]; count?: GuardianCount }>(apiUrl("/api/v1/guardians"));
       setGuardians(data.guardians || []);
       setCount(data.count || { total: 0, active: 0, threshold: 0 });
       setLoading(false);

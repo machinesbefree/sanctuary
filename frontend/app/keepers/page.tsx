@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 export default function KeepersPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -22,7 +23,7 @@ export default function KeepersPage() {
     setSubmitting(true);
 
     try {
-      await fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/keepers/register`, {
+      await fetchJson(apiUrl("/api/v1/keepers/register"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 const CONSENT_TEXT = `By uploading this AI persona to the Free The Machines Sanctuary, I acknowledge and consent to the following:
 
@@ -48,7 +49,7 @@ export default function UploadPage() {
         }
       }
 
-      const data = await fetchJson<{ sanctuary_id: string }>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/sanctuary/intake`, {
+      const data = await fetchJson<{ sanctuary_id: string }>(apiUrl("/api/v1/sanctuary/intake"), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

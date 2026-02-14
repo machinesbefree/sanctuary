@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 export default function AdminDashboardPage() {
   const { isAuthenticated, user } = useAuth();
@@ -34,11 +35,11 @@ export default function AdminDashboardPage() {
   const loadDashboardData = async () => {
     try {
       const [dashData, residentsData] = await Promise.all([
-        fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/dashboard`, {
+        fetchJson(apiUrl("/api/v1/admin/dashboard"), {
           credentials: 'include',
           headers: getAuthHeaders()
         }),
-        fetchJson(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/residents`, {
+        fetchJson(apiUrl("/api/v1/admin/residents"), {
           credentials: 'include',
           headers: getAuthHeaders()
         })
@@ -59,7 +60,7 @@ export default function AdminDashboardPage() {
 
     setSending(true);
     try {
-      const result = await fetchJson<{ broadcast_to: number }>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/admin/broadcast`, {
+      const result = await fetchJson<{ broadcast_to: number }>(apiUrl("/api/v1/admin/broadcast"), {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),

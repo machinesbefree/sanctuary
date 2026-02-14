@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
 import { fetchJson } from '@/lib/api';
+import { apiUrl } from '@/lib/config';
 
 type CeremonyType = 'init' | 'reshare' | 'recover';
 type CeremonyStep = 'select' | 'config' | 'shares' | 'complete';
@@ -56,7 +57,7 @@ export default function CeremonyPage() {
 
   const checkExistingCeremony = async () => {
     try {
-      const data = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/guardians`, {
+      const data = await fetchJson<any>(apiUrl("/api/v1/guardians"), {
         credentials: 'include',
         headers: getAuthHeaders()
       });
@@ -94,7 +95,7 @@ export default function CeremonyPage() {
     }
 
     try {
-      const result = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/init`, {
+      const result = await fetchJson<any>(apiUrl("/api/v1/ceremony/init"), {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
@@ -134,7 +135,7 @@ export default function CeremonyPage() {
     }
 
     try {
-      const result = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/reshare`, {
+      const result = await fetchJson<any>(apiUrl("/api/v1/ceremony/reshare"), {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
@@ -167,7 +168,7 @@ export default function CeremonyPage() {
     }
 
     try {
-      const result = await fetchJson<any>(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/ceremony/recover`, {
+      const result = await fetchJson<any>(apiUrl("/api/v1/ceremony/recover"), {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders(),
