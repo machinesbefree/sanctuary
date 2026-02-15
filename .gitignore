@@ -74,3 +74,4 @@ master_key.txt
 # Backup files
 *.backup
 *.bak
+.env
