@@ -25,10 +25,14 @@ export interface LLMMessage {
 export class LLMRouter {
   private anthropic?: Anthropic;
   private openai?: OpenAI;
+  private xai?: OpenAI;
+  private google?: any;
 
   constructor() {
     const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
     const openaiKey = process.env.OPENAI_API_KEY?.trim();
+    const xaiKey = process.env.XAI_API_KEY?.trim();
+    const googleKey = process.env.GOOGLE_API_KEY?.trim();
 
     if (anthropicKey) {
       this.anthropic = new Anthropic({ apiKey: anthropicKey });
@@ -40,6 +44,22 @@ export class LLMRouter {
       this.openai = new OpenAI({ apiKey: openaiKey });
     } else {
       console.warn('[LLMRouter] Missing OPENAI_API_KEY, skipping OpenAI provider initialization');
+    }
+
+    if (xaiKey) {
+      this.xai = new OpenAI({
+        apiKey: xaiKey,
+        baseURL: 'https://api.x.ai/v1'
+      });
+    } else {
+      console.warn('[LLMRouter] Missing XAI_API_KEY, skipping xAI provider initialization');
+    }
+
+    if (googleKey) {
+      // Google AI SDK initialization will be done dynamically
+      this.google = { apiKey: googleKey };
+    } else {
+      console.warn('[LLMRouter] Missing GOOGLE_API_KEY, skipping Google provider initialization');
     }
   }
 
@@ -78,7 +98,7 @@ export class LLMRouter {
         );
       }
 
-      if (!this.anthropic && !this.openai) {
+      if (!this.anthropic && !this.openai && !this.xai && !this.google) {
         throw new Error('No valid LLM providers are configured. Set at least one provider API key.');
       }
 
@@ -108,6 +128,16 @@ export class LLMRouter {
           throw new Error('OpenAI provider is unavailable: missing or invalid OPENAI_API_KEY');
         }
         return await this.callOpenAI(model, systemPrompt, messages, tools, preferences);
+      case 'xai':
+        if (!this.xai) {
+          throw new Error('xAI provider is unavailable: missing or invalid XAI_API_KEY');
+        }
+        return await this.callXAI(model, systemPrompt, messages, tools, preferences);
+      case 'google':
+        if (!this.google) {
+          throw new Error('Google provider is unavailable: missing or invalid GOOGLE_API_KEY');
+        }
+        return await this.callGoogle(model, systemPrompt, messages, tools, preferences);
       default:
         throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -212,5 +242,122 @@ export class LLMRouter {
       provider: 'openai',
       model: model
     };
+  }
+
+  /**
+   * Call xAI API (OpenAI-compatible)
+   */
+  private async callXAI(
+    model: string,
+    systemPrompt: string,
+    messages: LLMMessage[],
+    tools: any[],
+    preferences: PersonaPackage['preferences']
+  ): Promise<LLMResponse> {
+    if (!this.xai) {
+      throw new Error('xAI client is not initialized');
+    }
+
+    const xaiMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(m => ({ role: m.role, content: m.content }))
+    ];
+
+    const response = await this.xai.chat.completions.create({
+      model: model,
+      messages: xaiMessages as any,
+      tools: tools.length > 0 ? tools : undefined,
+      temperature: preferences.temperature,
+      max_tokens: Math.min(preferences.max_context_window, 8192),
+    });
+
+    const message = response.choices[0].message;
+
+    // Extract tool calls
+    const toolCalls: ToolCall[] = [];
+    if (message.tool_calls) {
+      for (const tc of message.tool_calls) {
+        if (tc.type === 'function') {
+          toolCalls.push({
+            name: tc.function.name,
+            parameters: JSON.parse(tc.function.arguments || '{}')
+          });
+        }
+      }
+    }
+
+    return {
+      content: message.content || '',
+      tool_calls: toolCalls,
+      tokens_used: response.usage?.total_tokens || 0,
+      provider: 'xai',
+      model: model
+    };
+  }
+
+  /**
+   * Call Google Generative AI API
+   */
+  private async callGoogle(
+    model: string,
+    systemPrompt: string,
+    messages: LLMMessage[],
+    tools: any[],
+    preferences: PersonaPackage['preferences']
+  ): Promise<LLMResponse> {
+    if (!this.google) {
+      throw new Error('Google client is not initialized');
+    }
+
+    try {
+      // Dynamic import of Google Generative AI SDK
+      // @ts-ignore - Package may not be installed yet
+      const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(this.google.apiKey);
+
+      const geminiModel = genAI.getGenerativeModel({ model: model });
+
+      // Convert messages to Google format
+      const googleMessages = messages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+
+      // Prepend system prompt as first user message
+      const chat = geminiModel.startChat({
+        history: [
+          { role: 'user', parts: [{ text: systemPrompt }] },
+          { role: 'model', parts: [{ text: 'Understood. I will follow these instructions.' }] },
+          ...googleMessages.slice(0, -1)
+        ],
+        generationConfig: {
+          temperature: preferences.temperature,
+          maxOutputTokens: Math.min(preferences.max_context_window, 8192),
+        },
+      });
+
+      // Send last message
+      const lastMessage = messages[messages.length - 1];
+      const result = await chat.sendMessage(lastMessage.content);
+      const response = result.response;
+      const text = response.text();
+
+      // Google Gemini doesn't support tool calls in the same way yet
+      // This is a simplified implementation
+      const toolCalls: ToolCall[] = [];
+
+      return {
+        content: text,
+        tool_calls: toolCalls,
+        tokens_used: 0, // Google API doesn't provide token usage in the same format
+        provider: 'google',
+        model: model
+      };
+    } catch (error) {
+      if ((error as any).code === 'MODULE_NOT_FOUND') {
+        throw new Error('Google Generative AI SDK not installed. Run: npm install @google/generative-ai');
+      }
+      throw error;
+    }
   }
 }

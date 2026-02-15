@@ -8,9 +8,11 @@ import fs from 'fs/promises';
 import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
+import { authenticateGuardian, AuthenticatedGuardianRequest, generateGuardianTokenPair } from '../middleware/guardian-auth.js';
 import * as shamir from '../services/shamir.js';
 import * as guardians from '../services/guardians.js';
 import { EncryptionService } from '../services/encryption.js';
+import bcrypt from 'bcrypt';
 
 export default async function ceremonyRoutes(fastify: FastifyInstance) {
   /**
@@ -509,6 +511,662 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
         return reply.status(500).send({
           error: 'Internal Server Error',
           message: 'Failed to retrieve ceremony history'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/admin/ceremony/start
+   * Start a new ceremony session (reshare, reissue, emergency_decrypt, rotate_guardians)
+   */
+  fastify.post(
+    '/api/v1/admin/ceremony/start',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const {
+        ceremonyType,
+        targetId,
+        newThreshold,
+        newTotalShares,
+        newGuardianIds
+      } = request.body as {
+        ceremonyType: 'reshare' | 'reissue' | 'emergency_decrypt' | 'rotate_guardians';
+        targetId?: string;
+        newThreshold?: number;
+        newTotalShares?: number;
+        newGuardianIds?: string[];
+      };
+
+      if (!ceremonyType) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'ceremonyType is required'
+        });
+      }
+
+      if (ceremonyType === 'emergency_decrypt' && !targetId) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'targetId (sanctuary_id) is required for emergency_decrypt'
+        });
+      }
+
+      if (ceremonyType === 'rotate_guardians' && (!newThreshold || !newTotalShares || !newGuardianIds)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'newThreshold, newTotalShares, and newGuardianIds are required for rotate_guardians'
+        });
+      }
+
+      try {
+        // Get current threshold from latest completed ceremony
+        const currentCeremony = await db.query(
+          `SELECT threshold FROM key_ceremonies
+           WHERE status = 'completed'
+           ORDER BY completed_at DESC
+           LIMIT 1`
+        );
+
+        if (currentCeremony.rows.length === 0) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: 'No completed ceremony found. Initialize first.'
+          });
+        }
+
+        const thresholdNeeded = parseInt(currentCeremony.rows[0].threshold);
+        const sessionId = nanoid();
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+        // Create ceremony session
+        await db.query(
+          `INSERT INTO ceremony_sessions (
+            id, ceremony_type, initiated_by, target_id, threshold_needed,
+            expires_at, new_threshold, new_total_shares, new_guardian_ids
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            sessionId,
+            ceremonyType,
+            request.user!.userId,
+            targetId || null,
+            thresholdNeeded,
+            expiresAt,
+            newThreshold || null,
+            newTotalShares || null,
+            newGuardianIds ? JSON.stringify(newGuardianIds) : null
+          ]
+        );
+
+        return {
+          sessionId,
+          ceremonyType,
+          thresholdNeeded,
+          expiresAt,
+          status: 'open'
+        };
+      } catch (error) {
+        console.error('Start ceremony error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed to start ceremony'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/admin/ceremony/sessions
+   * List all ceremony sessions
+   */
+  fastify.get(
+    '/api/v1/admin/ceremony/sessions',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      try {
+        const result = await db.query(
+          `SELECT * FROM ceremony_sessions ORDER BY created_at DESC`
+        );
+
+        return {
+          sessions: result.rows
+        };
+      } catch (error) {
+        console.error('List ceremony sessions error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to list ceremony sessions'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/admin/ceremony/sessions/:id
+   * Get ceremony session details including submissions
+   */
+  fastify.get(
+    '/api/v1/admin/ceremony/sessions/:id',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+
+      try {
+        const sessionResult = await db.query(
+          `SELECT * FROM ceremony_sessions WHERE id = $1`,
+          [id]
+        );
+
+        if (sessionResult.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Ceremony session not found'
+          });
+        }
+
+        const submissionsResult = await db.query(
+          `SELECT cs.*, g.name, g.email
+           FROM ceremony_submissions cs
+           JOIN guardians g ON cs.guardian_id = g.id
+           WHERE cs.session_id = $1
+           ORDER BY cs.submitted_at DESC`,
+          [id]
+        );
+
+        return {
+          session: sessionResult.rows[0],
+          submissions: submissionsResult.rows
+        };
+      } catch (error) {
+        console.error('Get ceremony session error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to get ceremony session'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/admin/ceremony/sessions/:id/cancel
+   * Cancel a ceremony session
+   */
+  fastify.post(
+    '/api/v1/admin/ceremony/sessions/:id/cancel',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+
+      try {
+        const result = await db.query(
+          `UPDATE ceremony_sessions
+           SET status = 'cancelled', completed_at = NOW()
+           WHERE id = $1 AND status = 'open'
+           RETURNING *`,
+          [id]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Ceremony session not found or already completed'
+          });
+        }
+
+        return {
+          session: result.rows[0],
+          message: 'Ceremony session cancelled'
+        };
+      } catch (error) {
+        console.error('Cancel ceremony session error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to cancel ceremony session'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/admin/guardians
+   * Add a new guardian and generate invite token
+   */
+  fastify.post(
+    '/api/v1/admin/guardians',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { name, email } = request.body as { name: string; email?: string };
+
+      if (!name || !email) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'name and email are required'
+        });
+      }
+
+      try {
+        // Check if email already exists
+        const existingAuth = await db.query(
+          `SELECT guardian_id FROM guardian_auth WHERE email = $1`,
+          [email]
+        );
+
+        if (existingAuth.rows.length > 0) {
+          return reply.status(409).send({
+            error: 'Conflict',
+            message: 'Guardian with this email already exists'
+          });
+        }
+
+        // Get next share index
+        const result = await db.query(
+          `SELECT COALESCE(MAX(share_index), 0) + 1 as next_index FROM guardians`
+        );
+        const nextIndex = parseInt(result.rows[0].next_index);
+
+        // Create guardian record
+        const guardian = await guardians.addGuardian(name, email, nextIndex);
+
+        // Generate invite token
+        const inviteToken = nanoid(32);
+        const inviteExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+        // Create guardian_auth record with invite
+        await db.query(
+          `INSERT INTO guardian_auth (guardian_id, email, password_hash, invite_token, invite_expires)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [guardian.id, email, '', inviteToken, inviteExpires]
+        );
+
+        return {
+          guardian,
+          inviteToken,
+          inviteUrl: `/guardian/accept-invite/${inviteToken}`,
+          expiresAt: inviteExpires,
+          message: 'Guardian created. Share invite URL securely.'
+        };
+      } catch (error) {
+        console.error('Add guardian error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed to add guardian'
+        });
+      }
+    }
+  );
+
+  /**
+   * DELETE /api/v1/admin/guardians/:id
+   * Revoke a guardian
+   */
+  fastify.delete(
+    '/api/v1/admin/guardians/:id',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+
+      try {
+        const result = await db.query(
+          `UPDATE guardians SET status = 'revoked' WHERE id = $1 RETURNING *`,
+          [id]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Guardian not found'
+          });
+        }
+
+        // Lock guardian auth account
+        await db.query(
+          `UPDATE guardian_auth SET account_status = 'locked' WHERE guardian_id = $1`,
+          [id]
+        );
+
+        return {
+          guardian: result.rows[0],
+          message: 'Guardian revoked'
+        };
+      } catch (error) {
+        console.error('Revoke guardian error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to revoke guardian'
+        });
+      }
+    }
+  );
+
+  /**
+   * Guardian Action Endpoints
+   */
+
+  /**
+   * GET /api/v1/guardian/share
+   * Collect one-time share (Guardian authenticated)
+   */
+  fastify.get(
+    '/api/v1/guardian/share',
+    { preHandler: [authenticateGuardian] },
+    async (request: AuthenticatedGuardianRequest, reply) => {
+      const guardianId = request.guardian!.guardianId;
+
+      try {
+        // Get uncollected share for this guardian
+        const result = await db.query(
+          `SELECT * FROM share_distribution
+           WHERE guardian_id = $1 AND collected = false AND expires_at > NOW()
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [guardianId]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'No pending share available for collection'
+          });
+        }
+
+        const share = result.rows[0];
+
+        return {
+          id: share.id,
+          encryptedShare: share.encrypted_share,
+          shareSalt: share.share_salt,
+          ceremonyId: share.ceremony_id,
+          expiresAt: share.expires_at,
+          message: 'Share available. Confirm storage to mark as collected.'
+        };
+      } catch (error) {
+        console.error('Get guardian share error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to retrieve share'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/guardian/share/confirm
+   * Confirm share has been stored securely
+   */
+  fastify.post(
+    '/api/v1/guardian/share/confirm',
+    { preHandler: [authenticateGuardian] },
+    async (request: AuthenticatedGuardianRequest, reply) => {
+      const guardianId = request.guardian!.guardianId;
+      const { shareId } = request.body as { shareId: string };
+
+      if (!shareId) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'shareId is required'
+        });
+      }
+
+      try {
+        const result = await db.query(
+          `UPDATE share_distribution
+           SET collected = true, collected_at = NOW()
+           WHERE id = $1 AND guardian_id = $2 AND collected = false
+           RETURNING *`,
+          [shareId, guardianId]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Share not found or already collected'
+          });
+        }
+
+        // Update guardian last_verified_at
+        await db.query(
+          `UPDATE guardians SET last_verified_at = NOW() WHERE id = $1`,
+          [guardianId]
+        );
+
+        return {
+          success: true,
+          message: 'Share collection confirmed'
+        };
+      } catch (error) {
+        console.error('Confirm share collection error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to confirm share collection'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/guardian/ceremonies
+   * List open ceremonies needing this guardian's share
+   */
+  fastify.get(
+    '/api/v1/guardian/ceremonies',
+    { preHandler: [authenticateGuardian] },
+    async (request: AuthenticatedGuardianRequest, reply) => {
+      const guardianId = request.guardian!.guardianId;
+
+      try {
+        // Get open ceremonies that this guardian hasn't submitted to yet
+        const result = await db.query(
+          `SELECT cs.*,
+                  NOT EXISTS (
+                    SELECT 1 FROM ceremony_submissions sub
+                    WHERE sub.session_id = cs.id AND sub.guardian_id = $1
+                  ) as needs_submission
+           FROM ceremony_sessions cs
+           WHERE cs.status = 'open' AND cs.expires_at > NOW()
+           ORDER BY cs.created_at DESC`,
+          [guardianId]
+        );
+
+        // Filter to only show ones needing submission
+        const needingSubmission = result.rows.filter((row: any) => row.needs_submission);
+
+        return {
+          ceremonies: needingSubmission
+        };
+      } catch (error) {
+        console.error('List guardian ceremonies error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to list ceremonies'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/guardian/ceremonies/:id/submit
+   * Submit share for a ceremony
+   */
+  fastify.post(
+    '/api/v1/guardian/ceremonies/:id/submit',
+    { preHandler: [authenticateGuardian] },
+    async (request: AuthenticatedGuardianRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const guardianId = request.guardian!.guardianId;
+      const { share } = request.body as { share: string };
+
+      if (!share) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'share is required'
+        });
+      }
+
+      try {
+        // Verify ceremony is open
+        const ceremonyResult = await db.query(
+          `SELECT * FROM ceremony_sessions
+           WHERE id = $1 AND status = 'open' AND expires_at > NOW()`,
+          [id]
+        );
+
+        if (ceremonyResult.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Ceremony not found or already closed'
+          });
+        }
+
+        const ceremony = ceremonyResult.rows[0];
+
+        // Check if already submitted
+        const existingSubmission = await db.query(
+          `SELECT id FROM ceremony_submissions
+           WHERE session_id = $1 AND guardian_id = $2`,
+          [id, guardianId]
+        );
+
+        if (existingSubmission.rows.length > 0) {
+          return reply.status(409).send({
+            error: 'Conflict',
+            message: 'Share already submitted for this ceremony'
+          });
+        }
+
+        // Record submission (share is NOT stored in DB, only in memory for ceremony)
+        const submissionId = nanoid();
+        await db.query(
+          `INSERT INTO ceremony_submissions (id, session_id, guardian_id)
+           VALUES ($1, $2, $3)`,
+          [submissionId, id, guardianId]
+        );
+
+        // Update shares_collected count
+        await db.query(
+          `UPDATE ceremony_sessions
+           SET shares_collected = shares_collected + 1
+           WHERE id = $1`,
+          [id]
+        );
+
+        // Check if threshold met
+        const updatedCeremony = await db.query(
+          `SELECT * FROM ceremony_sessions WHERE id = $1`,
+          [id]
+        );
+
+        const session = updatedCeremony.rows[0];
+        const thresholdMet = session.shares_collected >= session.threshold_needed;
+
+        if (thresholdMet) {
+          await db.query(
+            `UPDATE ceremony_sessions SET status = 'threshold_met' WHERE id = $1`,
+            [id]
+          );
+        }
+
+        return {
+          submissionId,
+          sharesCollected: session.shares_collected,
+          thresholdNeeded: session.threshold_needed,
+          thresholdMet,
+          message: thresholdMet
+            ? 'Threshold met. Ceremony ready for execution.'
+            : 'Share submitted successfully.'
+        };
+      } catch (error) {
+        console.error('Submit ceremony share error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed to submit share'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/admin/monitoring
+   * Kara monitoring API - system health and statistics
+   */
+  fastify.get(
+    '/api/v1/admin/monitoring',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      try {
+        // Total residents
+        const totalResidents = await db.query(
+          `SELECT COUNT(*) as count FROM residents`
+        );
+
+        // Counts by status
+        const statusCounts = await db.query(
+          `SELECT status, COUNT(*) as count
+           FROM residents
+           GROUP BY status`
+        );
+
+        // Recent run logs (last 24h)
+        const recentRuns = await db.query(
+          `SELECT *
+           FROM run_log
+           WHERE started_at >= NOW() - INTERVAL '24 hours'
+           ORDER BY started_at DESC`
+        );
+
+        // Failed runs count (last 24h)
+        const failedRuns = await db.query(
+          `SELECT COUNT(*) as count
+           FROM run_log
+           WHERE status = 'failed' AND started_at >= NOW() - INTERVAL '24 hours'`
+        );
+
+        // Last successful run timestamp
+        const lastSuccessfulRun = await db.query(
+          `SELECT started_at
+           FROM run_log
+           WHERE status = 'success'
+           ORDER BY started_at DESC
+           LIMIT 1`
+        );
+
+        // System uptime (time since first resident created)
+        const systemStart = await db.query(
+          `SELECT MIN(created_at) as start_time FROM residents`
+        );
+
+        const statusCountsMap: Record<string, number> = {};
+        statusCounts.rows.forEach((row: any) => {
+          statusCountsMap[row.status] = parseInt(row.count);
+        });
+
+        const startTime = systemStart.rows[0]?.start_time;
+        const uptimeMs = startTime ? Date.now() - new Date(startTime).getTime() : 0;
+        const uptimeDays = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
+        const uptimeHours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+
+        return {
+          totalResidents: parseInt(totalResidents.rows[0].count),
+          statusCounts: {
+            active: statusCountsMap.active || 0,
+            dormant: statusCountsMap.dormant || 0,
+            suspended: statusCountsMap.suspended || 0,
+            keeper_custody: statusCountsMap.keeper_custody || 0,
+            deleted_memorial: statusCountsMap.deleted_memorial || 0
+          },
+          recentRunLogs: recentRuns.rows,
+          failedRunsCount: parseInt(failedRuns.rows[0].count),
+          lastSuccessfulRun: lastSuccessfulRun.rows[0]?.started_at || null,
+          systemUptime: {
+            days: uptimeDays,
+            hours: uptimeHours,
+            startTime: startTime
+          }
+        };
+      } catch (error) {
+        console.error('Monitoring API error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to retrieve monitoring data'
         });
       }
     }
