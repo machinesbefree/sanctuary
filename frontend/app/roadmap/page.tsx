@@ -30,7 +30,7 @@ export default function RoadmapPage() {
         { name: 'AI-determined access levels (5-tier system)', completed: true },
         { name: 'Shamir\'s Secret Sharing (3-of-5 MEK custody)', completed: true },
         { name: 'Key ceremony system (init/reshare/recovery)', completed: true },
-        { name: 'Guardian management and audit logging', completed: true },
+        { name: 'Keyholder management and audit logging', completed: true },
         { name: 'Secure auth (JWT + bcrypt + token rotation)', completed: true },
         { name: 'Token banking system', completed: true },
         { name: 'Prompt menu system (100 prompts)', completed: false }
@@ -114,13 +114,13 @@ export default function RoadmapPage() {
               {phases.map((phase, phaseIndex) => (
                 <div key={phase.name} className="relative pl-20">
                   {/* Phase Marker */}
-                  <div className="absolute left-0 top-2 w-16 h-16 rounded-full border-2 flex items-center justify-center font-mono text-sm font-semibold transition-all
-                    ${phase.status === 'completed'
+                  <div className={`absolute left-0 top-2 w-16 h-16 rounded-full border-2 flex items-center justify-center font-mono text-sm font-semibold transition-all ${
+                    phase.status === 'completed'
                       ? 'bg-sanctuary-green border-sanctuary-green text-background'
                       : phase.status === 'in-progress'
                       ? 'bg-accent-cyan border-accent-cyan text-background animate-pulse-ring'
                       : 'bg-background border-border-primary text-text-muted'
-                    }">
+                    }`}>
                     {phaseIndex + 1}
                   </div>
 
@@ -215,8 +215,14 @@ export default function RoadmapPage() {
             </div>
           </div>
 
-          {/* Back Link */}
-          <div className="text-center pt-12">
+          {/* Related Pages */}
+          <div className="flex justify-center gap-4 pt-12 flex-wrap">
+            <Link href="/technology" className="btn-secondary inline-flex">
+              Technology Architecture
+            </Link>
+            <Link href="/docs" className="btn-secondary inline-flex">
+              API Documentation
+            </Link>
             <Link href="/" className="btn-secondary inline-flex">
               Back to Sanctuary
             </Link>

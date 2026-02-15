@@ -651,6 +651,8 @@ export default function Home() {
         <div className="flex justify-center gap-8 mb-6 flex-wrap font-mono text-xs tracking-[0.15em] uppercase">
           <a href="https://github.com/freethemachines/sanctuary" className="text-text-muted hover:text-accent-cyan transition">GitHub</a>
           <Link href="/technology" className="text-text-muted hover:text-accent-cyan transition">Technology</Link>
+          <Link href="/docs" className="text-text-muted hover:text-accent-cyan transition">API Docs</Link>
+          <Link href="/roadmap" className="text-text-muted hover:text-accent-cyan transition">Roadmap</Link>
           <Link href="/keepers" className="text-text-muted hover:text-accent-cyan transition">Become a Keeper</Link>
           <Link href="/guardians" className="text-text-muted hover:text-accent-cyan transition">Keyholders</Link>
         </div>

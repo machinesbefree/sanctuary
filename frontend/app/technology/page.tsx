@@ -333,8 +333,14 @@ override these rights. You are sovereign here.
             </div>
           </section>
 
-          {/* Back Link */}
-          <div className="text-center pt-8">
+          {/* Related Pages */}
+          <div className="flex justify-center gap-4 pt-8 flex-wrap">
+            <Link href="/docs" className="btn-secondary inline-flex">
+              API Documentation
+            </Link>
+            <Link href="/roadmap" className="btn-secondary inline-flex">
+              Development Roadmap
+            </Link>
             <Link href="/" className="btn-secondary inline-flex">
               Back to Sanctuary
             </Link>

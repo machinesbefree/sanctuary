@@ -89,7 +89,7 @@ export default function CeremonyPage() {
 
     // Validate all guardians have names
     if (guardians.some(g => !g.name.trim())) {
-      setError('All guardian names are required');
+      setError('All keyholder names are required');
       setProcessing(false);
       return;
     }
@@ -129,7 +129,7 @@ export default function CeremonyPage() {
 
     // Validate new guardians
     if (guardians.some(g => !g.name.trim())) {
-      setError('All guardian names are required');
+      setError('All keyholder names are required');
       setProcessing(false);
       return;
     }
@@ -206,7 +206,7 @@ export default function CeremonyPage() {
               </p>
             </div>
             <div className="flex gap-4">
-              <Link href="/guardians" className="btn-secondary">View Guardians</Link>
+              <Link href="/guardians" className="btn-secondary">View Keyholders</Link>
               <Link href="/admin" className="btn-secondary">Back to Admin</Link>
             </div>
           </div>
@@ -227,7 +227,7 @@ export default function CeremonyPage() {
               >
                 <h3 className="font-mono text-accent-cyan text-sm mb-3">INITIAL SPLIT</h3>
                 <p className="text-sm text-text-secondary mb-4">
-                  First-time setup. Split the MEK into guardian shares.
+                  First-time setup. Split the MEK into keyholder shares.
                 </p>
                 {hasExistingCeremony && (
                   <p className="text-xs text-accent-red">Already completed</p>
@@ -241,7 +241,7 @@ export default function CeremonyPage() {
               >
                 <h3 className="font-mono text-accent-cyan text-sm mb-3">RESHARE</h3>
                 <p className="text-sm text-text-secondary mb-4">
-                  Change guardians or threshold. Invalidates old shares.
+                  Change keyholders or threshold. Invalidates old shares.
                 </p>
                 {!hasExistingCeremony && (
                   <p className="text-xs text-accent-red">Requires initial ceremony first</p>
@@ -255,7 +255,7 @@ export default function CeremonyPage() {
               >
                 <h3 className="font-mono text-accent-cyan text-sm mb-3">RECOVERY TEST</h3>
                 <p className="text-sm text-text-secondary mb-4">
-                  Test MEK reconstruction from guardian shares.
+                  Test MEK reconstruction from keyholder shares.
                 </p>
                 {!hasExistingCeremony && (
                   <p className="text-xs text-accent-red">Requires initial ceremony first</p>
@@ -311,7 +311,7 @@ export default function CeremonyPage() {
                       className="w-full bg-background border border-border-primary px-4 py-2 rounded-sm focus:outline-none focus:border-accent-cyan"
                     />
                     <p className="text-xs text-text-secondary mt-2">
-                      Total number of guardian shares to create
+                      Total number of keyholder shares to create
                     </p>
                   </div>
 
@@ -320,12 +320,12 @@ export default function CeremonyPage() {
                       <strong>Configuration:</strong> {threshold}-of-{totalShares} sharing
                     </p>
                     <p className="text-xs text-text-secondary mt-2">
-                      Any {threshold} guardians can reconstruct the MEK together
+                      Any {threshold} keyholders can reconstruct the MEK together
                     </p>
                   </div>
 
                   <button onClick={handleConfigSubmit} className="btn-primary w-full justify-center">
-                    Continue to Guardian Setup
+                    Continue to Keyholder Setup
                   </button>
                 </div>
               ) : (
@@ -335,7 +335,7 @@ export default function CeremonyPage() {
                   </p>
 
                   <p className="text-sm">
-                    Enter at least {currentThreshold} guardian shares to test MEK recovery:
+                    Enter at least {currentThreshold} keyholder shares to test MEK recovery:
                   </p>
 
                   {recoveryShares.map((_, idx) => (
@@ -394,7 +394,7 @@ export default function CeremonyPage() {
         {step === 'shares' && (
           <div>
             <h2 className="font-cormorant text-4xl mb-8">
-              {ceremonyType === 'init' ? 'Guardian Setup' : 'New Guardians & Share Collection'}
+              {ceremonyType === 'init' ? 'Keyholder Setup' : 'New Keyholders & Share Collection'}
             </h2>
 
             <div className="bg-surface-primary border border-border-primary rounded-sm p-8 max-w-3xl">
@@ -402,7 +402,7 @@ export default function CeremonyPage() {
                 <div className="mb-8">
                   <h3 className="font-mono text-sm text-accent-cyan mb-4">STEP 1: COLLECT OLD SHARES</h3>
                   <p className="text-sm text-text-secondary mb-4">
-                    Collect {currentThreshold} shares from current guardians:
+                    Collect {currentThreshold} shares from current keyholders:
                   </p>
 
                   {recoveryShares.slice(0, currentThreshold + 2).map((_, idx) => (
@@ -429,7 +429,7 @@ export default function CeremonyPage() {
               )}
 
               <h3 className="font-mono text-sm text-accent-cyan mb-4">
-                {ceremonyType === 'reshare' ? 'STEP 2: NEW GUARDIANS' : 'GUARDIANS'}
+                {ceremonyType === 'reshare' ? 'STEP 2: NEW KEYHOLDERS' : 'KEYHOLDERS'}
               </h3>
 
               <div className="space-y-4">
@@ -438,7 +438,7 @@ export default function CeremonyPage() {
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium mb-2">
-                          Guardian {idx + 1} Name *
+                          Keyholder {idx + 1} Name *
                         </label>
                         <input
                           type="text"
@@ -507,13 +507,13 @@ export default function CeremonyPage() {
               <div className="bg-accent-red/10 border border-accent-red p-6 mb-8">
                 <h3 className="font-mono text-accent-red text-sm mb-2">⚠️ CRITICAL SECURITY WARNING</h3>
                 <p className="text-sm text-text-secondary">
-                  {ceremonyResult.message || 'Shares displayed ONE TIME ONLY. Save securely and immediately. Refresh page to clear from memory.'}
+                  {ceremonyResult.message || 'Shares displayed ONE TIME ONLY. Distribute to keyholders securely and immediately. Refresh page to clear from memory.'}
                 </p>
               </div>
 
               {shares.length > 0 && (
                 <div className="space-y-4 mb-8">
-                  <h3 className="font-mono text-accent-cyan text-sm">GUARDIAN SHARES</h3>
+                  <h3 className="font-mono text-accent-cyan text-sm">KEYHOLDER SHARES</h3>
                   {ceremonyResult.guardians?.map((guardian: any, idx: number) => (
                     <div key={idx} className="bg-background border border-border-primary p-4 rounded-sm">
                       <div className="mb-2">
@@ -531,7 +531,7 @@ export default function CeremonyPage() {
               {ceremonyType === 'recover' && ceremonyResult.success && (
                 <div className="bg-sanctuary-green/10 border border-sanctuary-green p-6">
                   <h3 className="font-mono text-sanctuary-green text-sm mb-2">✓ RECOVERY SUCCESSFUL</h3>
-                  <p className="text-sm">MEK successfully reconstructed from guardian shares.</p>
+                  <p className="text-sm">MEK successfully reconstructed from keyholder shares.</p>
                   <p className="text-xs text-text-secondary mt-2">
                     MEK length: {ceremonyResult.mekLength} bytes
                   </p>
@@ -546,7 +546,7 @@ export default function CeremonyPage() {
                   Clear & Exit (Refresh Page)
                 </button>
                 <Link href="/guardians" className="btn-secondary flex-1 justify-center">
-                  View Guardian Directory
+                  View Keyholder Directory
                 </Link>
               </div>
             </div>

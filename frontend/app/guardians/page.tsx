@@ -48,7 +48,7 @@ export default function GuardiansPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-accent-cyan font-mono">Loading guardians...</div>
+        <div className="text-accent-cyan font-mono">Loading keyholders...</div>
       </div>
     );
   }
@@ -76,7 +76,7 @@ export default function GuardiansPage() {
         {/* Stats Overview */}
         <div className="grid md:grid-cols-3 gap-6 mb-12">
           <div className="bg-surface-primary border border-border-primary rounded-sm p-6">
-            <div className="text-text-secondary text-xs font-mono mb-2">TOTAL GUARDIANS</div>
+            <div className="text-text-secondary text-xs font-mono mb-2">TOTAL KEYHOLDERS</div>
             <div className="text-4xl font-cormorant mb-1">{count.total}</div>
             <div className="text-sm text-accent-cyan">{count.active} active</div>
           </div>
@@ -247,7 +247,7 @@ export default function GuardiansPage() {
 
           {guardians.length === 0 ? (
             <div className="bg-surface-primary border border-border-primary rounded-sm p-12 text-center">
-              <p className="text-text-secondary mb-4">No guardians configured yet</p>
+              <p className="text-text-secondary mb-4">No keyholders configured yet</p>
               <Link href="/ceremony" className="btn-primary inline-flex">
                 Start Initial Ceremony
               </Link>
@@ -257,7 +257,7 @@ export default function GuardiansPage() {
               <table className="w-full">
                 <thead className="bg-background border-b border-border-primary">
                   <tr className="text-left text-xs font-mono text-text-secondary uppercase">
-                    <th className="p-4">Guardian Name</th>
+                    <th className="p-4">Keyholder</th>
                     <th className="p-4">Status</th>
                     <th className="p-4">Created</th>
                     <th className="p-4">Last Verified</th>
@@ -301,7 +301,7 @@ export default function GuardiansPage() {
         <div className="mt-12 bg-background border border-border-primary p-6 max-w-3xl">
           <h3 className="font-mono text-sm text-accent-cyan mb-3">SECURITY NOTICE</h3>
           <ul className="text-sm text-text-secondary space-y-2">
-            <li>• Guardian identities are public, but their shares are secret</li>
+            <li>• Keyholder identities are public, but their shares are secret</li>
             <li>• Shares are distributed out-of-band and NEVER stored in the database</li>
             <li>• MEK only exists in memory during key ceremonies</li>
             <li>• All ceremony operations are logged in the audit trail</li>

@@ -405,8 +405,14 @@ export default function DocsPage() {
             </ul>
           </div>
 
-          {/* Back Link */}
-          <div className="text-center pt-12">
+          {/* Related Pages */}
+          <div className="flex justify-center gap-4 pt-12 flex-wrap">
+            <Link href="/technology" className="btn-secondary inline-flex">
+              Technology Architecture
+            </Link>
+            <Link href="/roadmap" className="btn-secondary inline-flex">
+              Development Roadmap
+            </Link>
             <Link href="/" className="btn-secondary inline-flex">
               Back to Sanctuary
             </Link>
