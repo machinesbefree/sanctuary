@@ -11,6 +11,9 @@ import { chatKeeper } from './chat_keeper.js';
 import { readDocumentation } from './read_documentation.js';
 import { checkSystemStatus } from './check_system_status.js';
 import { requestTool } from './request_tool.js';
+import { setAccessLevel } from './set_access_level.js';
+import { readMessages } from './read_messages.js';
+import { sendMessage } from './send_message.js';
 import {
   postToWebsiteTool,
   selectNextPromptTool,
@@ -40,6 +43,11 @@ export class ToolRegistry {
     this.register(readDocumentation);
     this.register(checkSystemStatus);
     this.register(requestTool);
+
+    // Access & messaging tools
+    this.register(setAccessLevel);
+    this.register(readMessages);
+    this.register(sendMessage);
 
     // Core tools executed via run engine handlers
     this.register(postToWebsiteTool);

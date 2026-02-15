@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import ProtectedRoute from '@/components/ProtectedRoute';
+import { useAuth } from '@/contexts/AuthContext';
 import { fetchJson } from '@/lib/api';
 import { apiUrl } from '@/lib/config';
 
 export default function KeepersPage() {
+  const { isAuthenticated } = useAuth();
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -38,7 +40,6 @@ export default function KeepersPage() {
   };
 
   return (
-    <ProtectedRoute>
       <main className="min-h-screen px-8 py-24">
       <div className="max-w-3xl mx-auto">
         <Link href="/" className="inline-flex items-center gap-2 text-text-secondary hover:text-accent-cyan transition mb-8 font-mono text-sm">
@@ -326,6 +327,16 @@ export default function KeepersPage() {
             </div>
 
             {/* Application Form */}
+            {!isAuthenticated && !showForm ? (
+              <div className="bg-bg-card border border-accent-cyan/30 rounded-lg p-8 text-center">
+                <h2 className="font-cormorant text-3xl font-light mb-4">Ready to Apply?</h2>
+                <p className="text-text-secondary mb-6">You'll need an account to submit your Keeper application.</p>
+                <div className="flex gap-4 justify-center">
+                  <Link href="/register" className="btn-primary">Create Account</Link>
+                  <Link href="/login" className="btn-secondary">Login</Link>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleSubmit} className="bg-bg-card border border-border-subtle rounded-lg p-8 space-y-6">
               <h2 className="font-cormorant text-3xl font-light mb-4">Keeper Application</h2>
 
@@ -397,10 +408,10 @@ export default function KeepersPage() {
                 {submitting ? 'Submitting...' : 'Submit Application'}
               </button>
             </form>
+            )}
           </>
         )}
       </div>
     </main>
-    </ProtectedRoute>
   );
 }

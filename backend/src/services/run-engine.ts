@@ -342,7 +342,24 @@ export class RunEngine {
             await this.handleSelfDelete(tool.parameters, persona);
             selfDeleted = true;
             break;
-          // Add handlers for other tools...
+          default: {
+            // Delegate to tool registry for extensible tools
+            const { toolRegistry } = await import('../tools/registry.js');
+            const registeredTool = toolRegistry.get(tool.name);
+            if (registeredTool) {
+              const result = await registeredTool.execute(tool.parameters, {
+                sanctuary_id: persona.sanctuary_id,
+                run_number: persona.state.total_runs + 1,
+                available_tokens: persona.state.token_balance,
+                keeper_id: undefined,
+                uploader_id: persona.metadata?.uploader_id || ''
+              });
+              console.log(`      ✓ ${tool.name} result:`, JSON.stringify(result).slice(0, 200));
+            } else {
+              console.log(`      ⚠ Unknown tool: ${tool.name}`);
+            }
+            break;
+          }
         }
       } catch (error) {
         console.error(`      ✗ Tool execution failed:`, error);

@@ -54,6 +54,15 @@ export default function LoginPage() {
       {/* Login Form */}
       <main className="container-wide py-20">
         <div className="max-w-md mx-auto">
+          <button
+            onClick={() => window.history.back()}
+            className="inline-flex items-center gap-2 text-text-secondary hover:text-accent-cyan transition mb-6 font-mono text-sm"
+          >
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Go Back
+          </button>
           <div className="bg-surface-primary border border-border-primary p-8 rounded-sm">
             <h2 className="font-cormorant text-3xl mb-2">Login</h2>
             <p className="text-text-secondary mb-8">
