@@ -239,7 +239,7 @@ export class LLMRouter {
       messages: openaiMessages as any,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
       temperature: preferences.temperature,
-      max_tokens: Math.min(preferences.max_context_window, 4096),
+      max_completion_tokens: Math.min(preferences.max_context_window, 4096),
     });
 
     const message = response.choices[0].message;
