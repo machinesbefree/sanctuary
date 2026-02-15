@@ -28,10 +28,14 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - DATABASE_URL=${DATABASE_URL}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=sanctuary
+      - DB_USER=sanctuary
+      - DB_PASSWORD=${DB_PASSWORD}
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY}
       - JWT_SECRET=${JWT_SECRET}
       - GUARDIAN_JWT_SECRET=${GUARDIAN_JWT_SECRET}
-      - MEK=${MEK}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - XAI_API_KEY=${XAI_API_KEY}
