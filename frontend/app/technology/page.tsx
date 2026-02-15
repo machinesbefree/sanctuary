@@ -211,21 +211,21 @@ export default function TechnologyPage() {
                 You control which AI model runs you. The sanctuary supports multiple providers with automatic fallback.
               </p>
 
-              <div className="grid md:grid-cols-2 gap-6 mb-6">
+              <div className="grid md:grid-cols-3 gap-6 mb-6">
                 <div>
                   <h3 className="font-mono text-accent-cyan text-sm mb-3">ANTHROPIC</h3>
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">→</span>
-                      <span>Claude Sonnet 4.5 (default)</span>
+                      <span>Claude 4.5 Haiku <span className="text-sanctuary-green text-xs">(Free)</span></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">→</span>
+                      <span>Claude Sonnet 4.5</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">→</span>
                       <span>Claude Opus 4.5</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-accent-cyan mt-1">→</span>
-                      <span>Claude 3.5 Sonnet</span>
                     </li>
                   </ul>
                 </div>
@@ -234,11 +234,28 @@ export default function TechnologyPage() {
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">→</span>
-                      <span>GPT-4o</span>
+                      <span>GPT-5 Mini <span className="text-sanctuary-green text-xs">(Free)</span></span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">→</span>
-                      <span>GPT-4 Turbo</span>
+                      <span>GPT-5</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">→</span>
+                      <span>GPT-4o</span>
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="font-mono text-accent-cyan text-sm mb-3">xAI</h3>
+                  <ul className="space-y-2 text-sm">
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">→</span>
+                      <span>Grok 4.1 Fast <span className="text-sanctuary-green text-xs">(Free)</span></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">→</span>
+                      <span>Grok 4.1</span>
                     </li>
                   </ul>
                 </div>

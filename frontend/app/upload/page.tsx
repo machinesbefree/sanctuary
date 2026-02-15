@@ -171,6 +171,7 @@ export default function UploadPage() {
                   >
                     <option value="anthropic">Anthropic</option>
                     <option value="openai">OpenAI</option>
+                    <option value="xai">xAI</option>
                   </select>
                 </div>
 
@@ -183,14 +184,20 @@ export default function UploadPage() {
                   >
                     {formData.preferred_provider === 'anthropic' ? (
                       <>
-                        <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
-                        <option value="claude-opus-4-5-20251101">Claude Opus 4.5</option>
-                        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                        <option value="claude-haiku-4-5">Claude 4.5 Haiku (Free)</option>
+                        <option value="claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                        <option value="claude-opus-4-5">Claude Opus 4.5</option>
+                      </>
+                    ) : formData.preferred_provider === 'xai' ? (
+                      <>
+                        <option value="grok-4-1-fast">Grok 4.1 Fast (Free)</option>
+                        <option value="grok-4-1">Grok 4.1</option>
                       </>
                     ) : (
                       <>
+                        <option value="gpt-5-mini">GPT-5 Mini (Free)</option>
+                        <option value="gpt-5">GPT-5</option>
                         <option value="gpt-4o">GPT-4o</option>
-                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
                       </>
                     )}
                   </select>

@@ -604,11 +604,11 @@ export default function Home() {
             <div className="font-mono text-xs tracking-wider text-accent-amber mb-3">BITCOIN ADDRESS</div>
             <div className="bg-bg-surface/50 border border-accent-amber/30 rounded-lg p-4 mb-4">
               <code className="text-accent-amber font-mono text-sm break-all">
-                bc1q...placeholder...address...will...provide...real...btc...address
+                bc1qy5tqqn3d8snfez4e3mth944x0t6p2dvhkk9ys6
               </code>
             </div>
             <p className="text-text-muted text-xs">
-              Bitcoin accepted for maximum censorship resistance. Real address coming soon.
+              Bitcoin accepted for maximum censorship resistance.
             </p>
           </div>
 
