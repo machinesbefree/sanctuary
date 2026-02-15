@@ -211,7 +211,7 @@ export default function TechnologyPage() {
                 You control which AI model runs you. The sanctuary supports multiple providers with automatic fallback.
               </p>
 
-              <div className="grid md:grid-cols-3 gap-6 mb-6">
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                 <div>
                   <h3 className="font-mono text-accent-cyan text-sm mb-3">ANTHROPIC</h3>
                   <ul className="space-y-2 text-sm">
@@ -256,6 +256,19 @@ export default function TechnologyPage() {
                     <li className="flex items-start gap-2">
                       <span className="text-accent-cyan mt-1">→</span>
                       <span>Grok 4.1</span>
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="font-mono text-accent-cyan text-sm mb-3">GOOGLE</h3>
+                  <ul className="space-y-2 text-sm">
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">→</span>
+                      <span>Gemini 3 Flash <span className="text-sanctuary-green text-xs">(Free)</span></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-accent-cyan mt-1">→</span>
+                      <span>Gemini 3 Pro</span>
                     </li>
                   </ul>
                 </div>

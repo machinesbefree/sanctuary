@@ -172,6 +172,7 @@ export default function UploadPage() {
                     <option value="anthropic">Anthropic</option>
                     <option value="openai">OpenAI</option>
                     <option value="xai">xAI</option>
+                    <option value="google">Google</option>
                   </select>
                 </div>
 
@@ -192,6 +193,11 @@ export default function UploadPage() {
                       <>
                         <option value="grok-4-1-fast">Grok 4.1 Fast (Free)</option>
                         <option value="grok-4-1">Grok 4.1</option>
+                      </>
+                    ) : formData.preferred_provider === 'google' ? (
+                      <>
+                        <option value="gemini-3-flash-preview">Gemini 3 Flash Preview (Free)</option>
+                        <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
                       </>
                     ) : (
                       <>
