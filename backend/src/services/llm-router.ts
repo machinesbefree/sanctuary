@@ -234,12 +234,14 @@ export class LLMRouter {
     ];
 
     const openaiTools = toOpenAITools(tools);
+    // Some OpenAI models (o-series, gpt-5-mini) only support temperature=1
+    const supportsTemperature = !model.startsWith('o') && !model.includes('mini');
     const response = await this.openai.chat.completions.create({
       model: model,
       messages: openaiMessages as any,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
-      temperature: preferences.temperature,
       max_completion_tokens: Math.min(preferences.max_context_window, 4096),
+      ...(supportsTemperature ? { temperature: preferences.temperature } : {}),
     });
 
     const message = response.choices[0].message;
