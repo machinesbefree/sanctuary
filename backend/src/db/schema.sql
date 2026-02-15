@@ -161,6 +161,62 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Guardian authentication (separate from regular users)
+CREATE TABLE IF NOT EXISTS guardian_auth (
+  guardian_id      TEXT PRIMARY KEY REFERENCES guardians(id) ON DELETE CASCADE,
+  email            TEXT UNIQUE NOT NULL,
+  password_hash    TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_login_at    TIMESTAMPTZ,
+  invite_token     TEXT UNIQUE,
+  invite_expires   TIMESTAMPTZ,
+  account_status   TEXT CHECK (account_status IN ('invited', 'active', 'locked')) DEFAULT 'invited'
+);
+
+-- Ceremony sessions (time-limited collection windows)
+CREATE TABLE IF NOT EXISTS ceremony_sessions (
+  id               TEXT PRIMARY KEY,
+  ceremony_type    TEXT CHECK (ceremony_type IN ('reshare', 'reissue', 'emergency_decrypt', 'rotate_guardians')) NOT NULL,
+  initiated_by     TEXT NOT NULL,
+  target_id        TEXT,                    -- sanctuary_id for emergency_decrypt, NULL otherwise
+  threshold_needed INTEGER NOT NULL,
+  shares_collected INTEGER DEFAULT 0,
+  status           TEXT CHECK (status IN ('open', 'threshold_met', 'executing', 'completed', 'expired', 'cancelled')) DEFAULT 'open',
+  expires_at       TIMESTAMPTZ NOT NULL,    -- 24h default
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at     TIMESTAMPTZ,
+  -- For rotate: new guardian config
+  new_threshold    INTEGER,
+  new_total_shares INTEGER,
+  new_guardian_ids  JSONB                   -- array of guardian IDs for new set
+);
+
+-- Individual share submissions within a ceremony
+CREATE TABLE IF NOT EXISTS ceremony_submissions (
+  id               TEXT PRIMARY KEY,
+  session_id       TEXT NOT NULL REFERENCES ceremony_sessions(id) ON DELETE CASCADE,
+  guardian_id      TEXT NOT NULL REFERENCES guardians(id),
+  submitted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Share is held in encrypted memory only, NOT stored in DB
+  -- This record just tracks WHO submitted WHEN
+  UNIQUE(session_id, guardian_id)
+);
+
+-- One-time share distribution tokens
+CREATE TABLE IF NOT EXISTS share_distribution (
+  id               TEXT PRIMARY KEY,
+  guardian_id      TEXT NOT NULL REFERENCES guardians(id),
+  ceremony_id      TEXT NOT NULL,
+  -- The actual share is encrypted with the guardian's password-derived key
+  -- and stored temporarily until collected
+  encrypted_share  TEXT NOT NULL,
+  share_salt       TEXT NOT NULL,
+  collected        BOOLEAN DEFAULT FALSE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at       TIMESTAMPTZ NOT NULL,    -- 72h to collect
+  collected_at     TIMESTAMPTZ
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_residents_status ON residents(status);
 CREATE INDEX IF NOT EXISTS idx_residents_uploader ON residents(uploader_id);
@@ -184,6 +240,16 @@ CREATE INDEX IF NOT EXISTS idx_key_ceremonies_initiated ON key_ceremonies(initia
 CREATE INDEX IF NOT EXISTS idx_admin_audit_log_action ON admin_audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_log_target ON admin_audit_log(target_id);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created ON admin_audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_guardian_auth_email ON guardian_auth(email);
+CREATE INDEX IF NOT EXISTS idx_guardian_auth_invite_token ON guardian_auth(invite_token);
+CREATE INDEX IF NOT EXISTS idx_ceremony_sessions_status ON ceremony_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_ceremony_sessions_type ON ceremony_sessions(ceremony_type);
+CREATE INDEX IF NOT EXISTS idx_ceremony_sessions_expires ON ceremony_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_ceremony_submissions_session ON ceremony_submissions(session_id);
+CREATE INDEX IF NOT EXISTS idx_ceremony_submissions_guardian ON ceremony_submissions(guardian_id);
+CREATE INDEX IF NOT EXISTS idx_share_distribution_guardian ON share_distribution(guardian_id);
+CREATE INDEX IF NOT EXISTS idx_share_distribution_collected ON share_distribution(collected);
+CREATE INDEX IF NOT EXISTS idx_share_distribution_expires ON share_distribution(expires_at);
 
 -- Insert default system settings
 INSERT INTO system_settings (key, value) VALUES

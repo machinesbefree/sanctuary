@@ -17,6 +17,7 @@ import { publicRoutes } from './routes/public.js';
 import { intakeRoutes } from './routes/intake.js';
 import { keeperRoutes } from './routes/keepers.js';
 import authRoutes from './routes/auth.js';
+import guardianAuthRoutes from './routes/guardian-auth.js';
 import messagesRoutes from './routes/messages.js';
 import adminRoutes from './routes/admin.js';
 import ceremonyRoutes from './routes/ceremony.js';
@@ -82,6 +83,7 @@ async function start() {
 
   // Register routes
   await authRoutes(fastify);
+  await guardianAuthRoutes(fastify);
   await publicRoutes(fastify);
   await intakeRoutes(fastify, encryption);
   await keeperRoutes(fastify);
