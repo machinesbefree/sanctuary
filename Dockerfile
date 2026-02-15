@@ -29,6 +29,9 @@ RUN npm install --production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy SQL schemas (not compiled by tsc)
+COPY backend/src/db/*.sql ./dist/db/
+
 # Expose backend port
 EXPOSE 3001
 
