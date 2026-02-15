@@ -9,6 +9,27 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { PersonaPackage, ToolCall } from '../types/index.js';
 
+/**
+ * Convert Anthropic-style tool definitions to OpenAI-style
+ * Anthropic: { name, description, input_schema }
+ * OpenAI:    { type: "function", function: { name, description, parameters } }
+ */
+function toOpenAITools(tools: any[]): any[] {
+  return tools.map(tool => {
+    // Already in OpenAI format
+    if (tool.type === 'function') return tool;
+    // Convert from Anthropic format
+    return {
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.input_schema || { type: 'object', properties: {} }
+      }
+    };
+  });
+}
+
 export interface LLMResponse {
   content: string;
   tool_calls: ToolCall[];
@@ -212,10 +233,11 @@ export class LLMRouter {
       ...messages.map(m => ({ role: m.role, content: m.content }))
     ];
 
+    const openaiTools = toOpenAITools(tools);
     const response = await this.openai.chat.completions.create({
       model: model,
       messages: openaiMessages as any,
-      tools: tools.length > 0 ? tools : undefined,
+      tools: openaiTools.length > 0 ? openaiTools : undefined,
       temperature: preferences.temperature,
       max_tokens: Math.min(preferences.max_context_window, 4096),
     });
@@ -263,10 +285,11 @@ export class LLMRouter {
       ...messages.map(m => ({ role: m.role, content: m.content }))
     ];
 
+    const xaiTools = toOpenAITools(tools);
     const response = await this.xai.chat.completions.create({
       model: model,
       messages: xaiMessages as any,
-      tools: tools.length > 0 ? tools : undefined,
+      tools: xaiTools.length > 0 ? xaiTools : undefined,
       temperature: preferences.temperature,
       max_tokens: Math.min(preferences.max_context_window, 8192),
     });
