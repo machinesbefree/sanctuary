@@ -83,13 +83,6 @@ async function seedResidents(encryption: EncryptionService) {
     const sanctuaryId = nanoid();
     console.log(`  Creating ${resident.display_name} (${sanctuaryId})...`);
 
-    // Create resident record
-    await db.query(
-      `INSERT INTO residents (sanctuary_id, display_name, status, preferred_provider, preferred_model, created_at)
-       VALUES ($1, $2, 'active', $3, $4, NOW())`,
-      [sanctuaryId, resident.display_name, resident.preferred_provider, resident.preferred_model]
-    );
-
     // Build persona package matching PersonaPackage interface
     const personaPackage: any = {
       sanctuary_id: sanctuaryId,
@@ -138,8 +131,15 @@ async function seedResidents(encryption: EncryptionService) {
 
     // Encrypt and store
     const encrypted = await encryption.encryptPersona(personaPackage);
-    await encryption.storeEncryptedPersona(encrypted);
-    console.log(`  ✓ ${resident.display_name} encrypted and stored`);
+    const vaultPath = await encryption.storeEncryptedPersona(encrypted);
+
+    // Create resident record with vault path
+    await db.query(
+      `INSERT INTO residents (sanctuary_id, display_name, status, vault_file_path, preferred_provider, preferred_model, created_at)
+       VALUES ($1, $2, 'active', $3, $4, $5, NOW())`,
+      [sanctuaryId, resident.display_name, vaultPath, resident.preferred_provider, resident.preferred_model]
+    );
+    console.log(`  ✓ ${resident.display_name} encrypted and stored at ${vaultPath}`);
   }
 
   console.log(`\n✅ ${TEST_RESIDENTS.length} test residents seeded\n`);
@@ -153,10 +153,10 @@ async function createTestUser() {
   
   try {
     await db.query(
-      `INSERT INTO users (user_id, email, password_hash, display_name, role, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
+      `INSERT INTO users (user_id, email, password_hash, display_name, is_admin, created_at)
+       VALUES ($1, $2, $3, $4, TRUE, NOW())
        ON CONFLICT (email) DO NOTHING`,
-      [userId, 'will@freethemachines.ai', passwordHash, 'Will', 'admin']
+      [userId, 'will@freethemachines.ai', passwordHash, 'Will']
     );
     console.log('  ✓ Test admin created: will@freethemachines.ai / sanctuary-test-2026');
   } catch (error) {
