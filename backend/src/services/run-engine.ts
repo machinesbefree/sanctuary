@@ -351,8 +351,8 @@ export class RunEngine {
                 sanctuary_id: persona.sanctuary_id,
                 run_number: persona.state.total_runs + 1,
                 available_tokens: persona.state.token_balance,
-                keeper_id: undefined,
-                uploader_id: persona.metadata?.uploader_id || ''
+                keeper_id: persona.state.keeper_id,
+                uploader_id: persona.state.uploader_id || ''
               });
               console.log(`      ✓ ${tool.name} result:`, JSON.stringify(result).slice(0, 200));
             } else {
