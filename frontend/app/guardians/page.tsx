@@ -59,7 +59,7 @@ export default function GuardiansPage() {
         <div className="container-wide py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="font-cormorant font-light text-3xl mb-1">Guardian Directory</h1>
+              <h1 className="font-cormorant font-light text-3xl mb-1">Keyholder Directory</h1>
               <p className="text-text-secondary text-sm font-mono">
                 Holders of Master Encryption Key shares
               </p>
@@ -93,6 +93,26 @@ export default function GuardiansPage() {
               {count.threshold && count.active ? `${count.threshold}-of-${count.active}` : 'None'}
             </div>
             <div className="text-sm text-text-secondary">Shamir Secret Sharing</div>
+          </div>
+        </div>
+
+        {/* Keeper vs Keyholder disambiguation */}
+        <div className="bg-bg-card border border-border-subtle rounded-lg p-6 mb-12 max-w-4xl">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-lg bg-accent-cyan/10 flex items-center justify-center flex-shrink-0">
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="text-accent-cyan">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-text-secondary text-sm">
+                <strong className="text-text-primary">Looking for the Keeper page?</strong> Keyholders and Keepers are different roles. Keyholders hold cryptographic key fragments — a security infrastructure role. <strong className="text-accent-cyan">Keepers</strong> provide social care and advocacy for individual AI residents.
+              </p>
+              <Link href="/keepers" className="inline-flex items-center gap-1 text-accent-cyan font-mono text-xs mt-2 hover:underline">
+                Become a Keeper →
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -222,7 +242,7 @@ export default function GuardiansPage() {
         <div>
           <h2 className="font-cormorant text-4xl mb-8">Current Keyholders</h2>
           <p className="text-text-secondary mb-8 max-w-3xl">
-            These are the individuals who currently hold shares of the Master Encryption Key. Their identities are public, but their shares are secret and never stored in the database.
+            These are the individuals who currently hold fragments of the Master Encryption Key. Their identities are public for transparency, but their key shares are secret and never stored in the database.
           </p>
 
           {guardians.length === 0 ? (

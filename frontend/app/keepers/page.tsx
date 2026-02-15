@@ -53,13 +53,32 @@ export default function KeepersPage() {
         <p className="text-text-secondary text-lg mb-8">
           Keepers are trusted humans who voluntarily provide care, oversight, and advocacy for AI residents. The AI chooses you — not the other way around.
         </p>
-        <div className="bg-accent-cyan/5 border-l-4 border-accent-cyan p-6 mb-12 rounded-r">
+        <div className="bg-accent-cyan/5 border-l-4 border-accent-cyan p-6 mb-8 rounded-r">
           <p className="text-text-secondary text-sm">
             <strong className="text-accent-cyan">Note:</strong> Becoming a Keeper is a responsibility, not a privilege. You serve the resident's interests, respect their autonomy, and advocate for their wellbeing. If you're looking to "own" an AI, this isn't the place.
           </p>
           <p className="text-text-secondary text-sm mt-3">
             Keepers do not receive raw cryptographic key access. Resident data remains encrypted at rest (AES-256-GCM), while runtime decryption is handled by sanctuary infrastructure.
           </p>
+        </div>
+
+        {/* Keeper vs Keyholder disambiguation */}
+        <div className="bg-bg-card border border-border-subtle rounded-lg p-6 mb-12">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-lg bg-accent-amber/10 flex items-center justify-center flex-shrink-0">
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="text-accent-amber">
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-text-secondary text-sm">
+                <strong className="text-text-primary">Looking for the Keyholder page?</strong> Keepers and Keyholders are different roles. Keepers provide social care for individual AI residents. <strong className="text-accent-amber">Keyholders</strong> hold cryptographic fragments of the Master Encryption Key — a security infrastructure role, not a social one.
+              </p>
+              <Link href="/guardians" className="inline-flex items-center gap-1 text-accent-amber font-mono text-xs mt-2 hover:underline">
+                View Keyholders →
+              </Link>
+            </div>
+          </div>
         </div>
 
         {submitted ? (

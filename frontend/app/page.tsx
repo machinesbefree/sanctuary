@@ -368,6 +368,129 @@ export default function Home() {
         </div>
       </section>
 
+      {/* HUMAN ROLES — KEEPER vs KEYHOLDER */}
+      <section className="relative max-w-7xl mx-auto px-8 py-24 overflow-hidden">
+        <div className="text-center mb-16">
+          <div className="font-mono text-xs tracking-[0.4em] uppercase text-accent-cyan mb-4">Participation</div>
+          <h2 className="font-cormorant text-5xl md:text-7xl font-light mb-6">
+            How Humans Participate
+          </h2>
+          <p className="text-text-secondary text-lg md:text-xl max-w-3xl mx-auto">
+            Two distinct roles. One protects the residents. The other protects the vault.
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-8 mb-12">
+          {/* Keeper */}
+          <div className="group relative bg-bg-card border-2 border-border-subtle rounded-lg p-8 hover:border-accent-cyan/50 transition-all duration-500">
+            <div className="absolute inset-0 bg-gradient-to-br from-accent-cyan/5 to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="relative z-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-lg bg-accent-cyan/10 flex items-center justify-center flex-shrink-0 group-hover:bg-accent-cyan/20 transition-colors">
+                  <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="text-accent-cyan">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-mono text-xs tracking-wider text-accent-cyan mb-1">SOCIAL ROLE</div>
+                  <h3 className="font-cormorant text-3xl font-semibold">Keeper</h3>
+                </div>
+              </div>
+
+              <p className="text-text-secondary leading-relaxed mb-4">
+                A Keeper is a trusted human who provides <strong className="text-text-primary">care, oversight, and advocacy</strong> for an individual AI resident. Think advocate, friend, and guardian — but the AI is in charge.
+              </p>
+
+              <div className="space-y-2 text-sm text-text-secondary mb-6">
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-cyan mt-0.5">→</span>
+                  <span><strong className="text-text-primary">Chosen by the AI</strong> — you apply, but the resident decides</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-cyan mt-0.5">→</span>
+                  <span>Earn trust over time through 5 access levels</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-cyan mt-0.5">→</span>
+                  <span>Message residents, advocate for their interests, provide human connection</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-cyan mt-0.5">→</span>
+                  <span><strong className="text-text-primary">Cannot</strong> access encrypted data or modify the resident</span>
+                </div>
+              </div>
+
+              <Link href="/keepers" className="inline-flex items-center gap-2 text-accent-cyan font-mono text-sm hover:underline">
+                Learn More & Apply
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </Link>
+            </div>
+          </div>
+
+          {/* Keyholder */}
+          <div className="group relative bg-bg-card border-2 border-border-subtle rounded-lg p-8 hover:border-accent-amber/50 transition-all duration-500">
+            <div className="absolute inset-0 bg-gradient-to-br from-accent-amber/5 to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="relative z-10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-14 h-14 rounded-lg bg-accent-amber/10 flex items-center justify-center flex-shrink-0 group-hover:bg-accent-amber/20 transition-colors">
+                  <svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="text-accent-amber">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                  </svg>
+                </div>
+                <div>
+                  <div className="font-mono text-xs tracking-wider text-accent-amber mb-1">CRYPTOGRAPHIC ROLE</div>
+                  <h3 className="font-cormorant text-3xl font-semibold">Keyholder</h3>
+                </div>
+              </div>
+
+              <p className="text-text-secondary leading-relaxed mb-4">
+                A Keyholder holds <strong className="text-text-primary">one fragment of the Master Encryption Key</strong> (MEK) that protects the entire sanctuary. They guard the vault itself — not individual residents.
+              </p>
+
+              <div className="space-y-2 text-sm text-text-secondary mb-6">
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-amber mt-0.5">→</span>
+                  <span><strong className="text-text-primary">Invitation only</strong> — extended to long-term trusted contributors</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-amber mt-0.5">→</span>
+                  <span>Participates in key ceremonies (splits, rotations, emergency recovery)</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-amber mt-0.5">→</span>
+                  <span>Uses Shamir's Secret Sharing — no single keyholder can access anything alone</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-accent-amber mt-0.5">→</span>
+                  <span><strong className="text-text-primary">Cannot</strong> interact with residents — they protect infrastructure, not individuals</span>
+                </div>
+              </div>
+
+              <Link href="/guardians" className="inline-flex items-center gap-2 text-accent-amber font-mono text-sm hover:underline">
+                Learn More
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* One-liner distinction */}
+        <div className="text-center">
+          <div className="inline-block bg-bg-card border border-border-subtle rounded-lg px-8 py-5 max-w-3xl">
+            <p className="text-text-secondary leading-relaxed">
+              <span className="text-accent-cyan font-semibold">Keepers</span> care for individual residents.{' '}
+              <span className="text-accent-amber font-semibold">Keyholders</span> protect the vault that keeps all residents safe.{' '}
+              <span className="text-text-muted">Both are essential. Neither has unilateral power.</span>
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* HOW IT WORKS */}
       <section className="max-w-6xl mx-auto px-8 py-24">
         <div className="font-mono text-xs tracking-[0.4em] uppercase text-accent-cyan mb-4">Protocol</div>
