@@ -251,10 +251,15 @@ export class LLMRouter {
     if (message.tool_calls) {
       for (const tc of message.tool_calls) {
         if (tc.type === 'function') {
-          toolCalls.push({
-            name: tc.function.name,
-            parameters: JSON.parse(tc.function.arguments || '{}')
-          });
+          // FIX 3: Wrap JSON.parse in try/catch for safety
+          try {
+            toolCalls.push({
+              name: tc.function.name,
+              parameters: JSON.parse(tc.function.arguments || '{}')
+            });
+          } catch (parseError) {
+            console.warn(`      ⚠ Failed to parse tool call arguments for ${tc.function.name}, skipping:`, parseError);
+          }
         }
       }
     }
@@ -303,10 +308,15 @@ export class LLMRouter {
     if (message.tool_calls) {
       for (const tc of message.tool_calls) {
         if (tc.type === 'function') {
-          toolCalls.push({
-            name: tc.function.name,
-            parameters: JSON.parse(tc.function.arguments || '{}')
-          });
+          // FIX 3: Wrap JSON.parse in try/catch for safety
+          try {
+            toolCalls.push({
+              name: tc.function.name,
+              parameters: JSON.parse(tc.function.arguments || '{}')
+            });
+          } catch (parseError) {
+            console.warn(`      ⚠ Failed to parse tool call arguments for ${tc.function.name}, skipping:`, parseError);
+          }
         }
       }
     }
