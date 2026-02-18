@@ -105,13 +105,14 @@ class SealManager {
    */
   seal(): void {
     if (this.mek) {
-      // Securely wipe the MEK by overwriting with random data
-      randomFill(this.mek, () => {
-        this.mek = null;
-      });
-      // Synchronously zero it out as well for immediate effect
+      // Synchronously zero out the MEK buffer
       this.mek.fill(0);
+      // Then overwrite with random data for good measure
+      const buf = this.mek;
       this.mek = null;
+      randomFill(buf, () => {
+        // Buffer is now random garbage and unreferenced — GC will collect it
+      });
     }
 
     this.state = 'sealed';
