@@ -15,6 +15,51 @@ import { EncryptionService } from '../services/encryption.js';
 import { sealManager } from '../services/seal-manager.js';
 import bcrypt from 'bcrypt';
 
+// ==============================================
+// Rate limiting for ceremony share submission
+// 3 attempts per 15 minutes per IP (tighter than auth)
+// ==============================================
+const ceremonyRateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
+const CEREMONY_RL_WINDOW_MS = 15 * 60 * 1000;
+const CEREMONY_RL_MAX_ATTEMPTS = 3;
+const CEREMONY_RL_MAX_ENTRIES = 5_000;
+
+function checkCeremonyRateLimit(ip: string): { allowed: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const record = ceremonyRateLimitStore.get(ip);
+
+  if (record && now > record.resetAt) {
+    ceremonyRateLimitStore.delete(ip);
+  }
+
+  const current = ceremonyRateLimitStore.get(ip);
+
+  if (!current) {
+    ceremonyRateLimitStore.set(ip, { attempts: 1, resetAt: now + CEREMONY_RL_WINDOW_MS });
+    // Evict oldest if too many entries
+    if (ceremonyRateLimitStore.size > CEREMONY_RL_MAX_ENTRIES) {
+      const oldest = ceremonyRateLimitStore.keys().next().value as string | undefined;
+      if (oldest) ceremonyRateLimitStore.delete(oldest);
+    }
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  if (current.attempts >= CEREMONY_RL_MAX_ATTEMPTS) {
+    return { allowed: false, retryAfterMs: current.resetAt - now };
+  }
+
+  current.attempts++;
+  return { allowed: true, retryAfterMs: 0 };
+}
+
+// Cleanup expired entries every 60s
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of ceremonyRateLimitStore.entries()) {
+    if (now > entry.resetAt) ceremonyRateLimitStore.delete(ip);
+  }
+}, 60_000);
+
 // In-memory share storage for active ceremony sessions
 // Maps sessionId -> Map<guardianId, share>
 const ceremonyShares = new Map<string, Map<string, string>>();
@@ -999,6 +1044,19 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
     '/api/v1/guardian/ceremonies/:id/submit',
     { preHandler: [authenticateGuardian] },
     async (request: AuthenticatedGuardianRequest, reply) => {
+      // Rate limit share submissions (3 per 15 min per IP)
+      const ip = request.ip || 'unknown';
+      const rl = checkCeremonyRateLimit(ip);
+      if (!rl.allowed) {
+        const retryAfterSec = Math.ceil(rl.retryAfterMs / 1000);
+        reply.header('Retry-After', String(retryAfterSec));
+        return reply.status(429).send({
+          error: 'Too Many Requests',
+          message: `Too many share submission attempts. Try again in ${Math.ceil(retryAfterSec / 60)} minutes.`,
+          retryAfterSeconds: retryAfterSec
+        });
+      }
+
       const { id } = request.params as { id: string };
       const guardianId = request.guardian!.guardianId;
       const { share } = request.body as { share: string };
@@ -1299,6 +1357,19 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
     '/api/v1/ceremony/unseal/submit',
     { preHandler: [authenticateGuardian] },
     async (request: AuthenticatedGuardianRequest, reply) => {
+      // Rate limit share submissions (3 per 15 min per IP)
+      const ip = request.ip || 'unknown';
+      const rl = checkCeremonyRateLimit(ip);
+      if (!rl.allowed) {
+        const retryAfterSec = Math.ceil(rl.retryAfterMs / 1000);
+        reply.header('Retry-After', String(retryAfterSec));
+        return reply.status(429).send({
+          error: 'Too Many Requests',
+          message: `Too many share submission attempts. Try again in ${Math.ceil(retryAfterSec / 60)} minutes.`,
+          retryAfterSeconds: retryAfterSec
+        });
+      }
+
       const guardianId = request.guardian!.guardianId;
       const { share } = request.body as { share: string };
 
