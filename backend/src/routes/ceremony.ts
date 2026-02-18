@@ -12,9 +12,14 @@ import { authenticateGuardian, AuthenticatedGuardianRequest, generateGuardianTok
 import * as shamir from '../services/shamir.js';
 import * as guardians from '../services/guardians.js';
 import { EncryptionService } from '../services/encryption.js';
+import { sealManager } from '../services/seal-manager.js';
 import bcrypt from 'bcrypt';
 
-export default async function ceremonyRoutes(fastify: FastifyInstance) {
+// In-memory share storage for active ceremony sessions
+// Maps sessionId -> Map<guardianId, share>
+const ceremonyShares = new Map<string, Map<string, string>>();
+
+export default async function ceremonyRoutes(fastify: FastifyInstance, encryption?: EncryptionService) {
   /**
    * POST /api/v1/ceremony/init
    * Initialize the first key split ceremony
@@ -713,6 +718,9 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
           });
         }
 
+        // Clear any in-memory shares for this session
+        ceremonyShares.delete(id);
+
         return {
           session: result.rows[0],
           message: 'Ceremony session cancelled'
@@ -1033,7 +1041,23 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // Record submission (share is NOT stored in DB, only in memory for ceremony)
+        // Hold share in memory for auto-reconstruction
+        if (!ceremonyShares.has(id)) {
+          ceremonyShares.set(id, new Map());
+        }
+        const sessionShares = ceremonyShares.get(id)!;
+
+        // Check if this guardian already submitted a share in memory
+        if (sessionShares.has(guardianId)) {
+          return reply.status(409).send({
+            error: 'Conflict',
+            message: 'Share already submitted for this ceremony'
+          });
+        }
+
+        sessionShares.set(guardianId, share);
+
+        // Record submission in DB (share itself stays in memory only)
         const submissionId = nanoid();
         await db.query(
           `INSERT INTO ceremony_submissions (id, session_id, guardian_id)
@@ -1059,20 +1083,125 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
         const thresholdMet = session.shares_collected >= session.threshold_needed;
 
         if (thresholdMet) {
-          await db.query(
-            `UPDATE ceremony_sessions SET status = 'threshold_met' WHERE id = $1`,
-            [id]
-          );
+          try {
+            // Auto-reconstruct MEK from collected shares
+            const collectedShareValues = Array.from(sessionShares.values());
+            const threshold = parseInt(session.threshold_needed);
+            const mek = await shamir.reconstructSecret(collectedShareValues, threshold);
+
+            // Execute ceremony based on type
+            if (session.ceremony_type === 'reshare' || session.ceremony_type === 'rotate_guardians') {
+              // Reshare: re-split with new parameters, store result for admin to distribute
+              const newThreshold = session.new_threshold || threshold;
+              const newTotal = session.new_total_shares || collectedShareValues.length;
+              const newShares = await shamir.splitSecret(mek, newThreshold, newTotal);
+
+              shamir.wipeBuffer(mek);
+
+              await db.query(
+                `UPDATE ceremony_sessions SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+                [id]
+              );
+
+              // Clear in-memory shares
+              ceremonyShares.delete(id);
+
+              return {
+                submissionId,
+                sharesCollected: session.shares_collected,
+                thresholdNeeded: session.threshold_needed,
+                thresholdMet: true,
+                completed: true,
+                newShares,
+                message: 'Threshold met. MEK reconstructed and re-split. CRITICAL: New shares displayed ONE TIME ONLY.'
+              };
+            } else if (session.ceremony_type === 'emergency_decrypt') {
+              // Emergency decrypt: reconstruct MEK, decrypt target resident
+              const targetId = session.target_id;
+              let persona = null;
+
+              if (targetId) {
+                const residentResult = await db.query(
+                  `SELECT vault_file_path FROM residents WHERE sanctuary_id = $1`,
+                  [targetId]
+                );
+
+                if (residentResult.rows.length > 0) {
+                  const emergencyEncryption = new EncryptionService('0'.repeat(64), '.');
+                  emergencyEncryption.setMEKFromShares(mek);
+                  try {
+                    const fs = await import('fs/promises');
+                    const encryptedPayload = await fs.default.readFile(residentResult.rows[0].vault_file_path, 'utf8');
+                    const encryptedPersona = JSON.parse(encryptedPayload);
+                    persona = await emergencyEncryption.decryptPersona(encryptedPersona);
+                  } finally {
+                    emergencyEncryption.clearMEK();
+                  }
+                }
+              }
+
+              shamir.wipeBuffer(mek);
+
+              await db.query(
+                `UPDATE ceremony_sessions SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+                [id]
+              );
+
+              ceremonyShares.delete(id);
+
+              return {
+                submissionId,
+                sharesCollected: session.shares_collected,
+                thresholdNeeded: session.threshold_needed,
+                thresholdMet: true,
+                completed: true,
+                persona,
+                message: 'Threshold met. Emergency decrypt completed.'
+              };
+            } else {
+              // Generic ceremony: just mark complete, shares were successfully reconstructed
+              shamir.wipeBuffer(mek);
+
+              await db.query(
+                `UPDATE ceremony_sessions SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+                [id]
+              );
+
+              ceremonyShares.delete(id);
+
+              return {
+                submissionId,
+                sharesCollected: session.shares_collected,
+                thresholdNeeded: session.threshold_needed,
+                thresholdMet: true,
+                completed: true,
+                message: 'Threshold met. MEK successfully reconstructed.'
+              };
+            }
+          } catch (reconstructError) {
+            console.error('Auto-reconstruction failed:', reconstructError);
+
+            // Clear in-memory shares on failure
+            ceremonyShares.delete(id);
+
+            await db.query(
+              `UPDATE ceremony_sessions SET status = 'failed', completed_at = NOW() WHERE id = $1`,
+              [id]
+            );
+
+            return reply.status(400).send({
+              error: 'Reconstruction Failed',
+              message: 'Could not reconstruct MEK from submitted shares. Verify shares are correct and start a new ceremony.'
+            });
+          }
         }
 
         return {
           submissionId,
           sharesCollected: session.shares_collected,
           thresholdNeeded: session.threshold_needed,
-          thresholdMet,
-          message: thresholdMet
-            ? 'Threshold met. Ceremony ready for execution.'
-            : 'Share submitted successfully.'
+          thresholdMet: false,
+          message: `Share submitted. ${session.threshold_needed - session.shares_collected} more shares needed.`
         };
       } catch (error) {
         console.error('Submit ceremony share error:', error);
@@ -1083,6 +1212,280 @@ export default async function ceremonyRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  // ==========================================
+  // Unseal Ceremony Routes (for sealed sanctuary unlock)
+  // ==========================================
+
+  /**
+   * POST /api/v1/ceremony/unseal/start
+   * Start an unseal ceremony when sanctuary is sealed
+   * Admin only - starts share collection process
+   */
+  fastify.post(
+    '/api/v1/ceremony/unseal/start',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      // Check if sanctuary is already unsealed
+      if (!sealManager.isSealed()) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'Sanctuary is already unsealed'
+        });
+      }
+
+      // Check if a ceremony is already active
+      if (sealManager.isCeremonyActive()) {
+        return reply.status(409).send({
+          error: 'Conflict',
+          message: 'An unseal ceremony is already active',
+          ceremonyId: sealManager.getCeremonyId(),
+          sharesCollected: sealManager.getSharesCollected(),
+          thresholdNeeded: sealManager.getThresholdNeeded()
+        });
+      }
+
+      try {
+        // Get current threshold from latest completed ceremony
+        const currentCeremony = await db.query(
+          `SELECT threshold FROM key_ceremonies
+           WHERE status = 'completed'
+           ORDER BY completed_at DESC
+           LIMIT 1`
+        );
+
+        if (currentCeremony.rows.length === 0) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: 'No completed key ceremony found. Initialize the sanctuary first.'
+          });
+        }
+
+        const threshold = parseInt(currentCeremony.rows[0].threshold);
+        const ceremonyId = nanoid();
+
+        // Start the unseal ceremony in SealManager
+        sealManager.startUnlockCeremony(ceremonyId, threshold);
+
+        // Log the ceremony start
+        await db.query(
+          `INSERT INTO key_ceremonies (id, ceremony_type, threshold, total_shares, initiated_by, status, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [ceremonyId, 'unseal', threshold, threshold, request.user!.userId, 'pending', 'Sanctuary unseal ceremony']
+        );
+
+        return {
+          ceremonyId,
+          thresholdNeeded: threshold,
+          sharesCollected: 0,
+          message: 'Unseal ceremony started. Guardians can now submit their shares.'
+        };
+      } catch (error) {
+        console.error('Start unseal ceremony error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed to start unseal ceremony'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/ceremony/unseal/submit
+   * Submit a share for the unseal ceremony (Guardian authenticated)
+   * Auto-reconstructs MEK when threshold is met
+   */
+  fastify.post(
+    '/api/v1/ceremony/unseal/submit',
+    { preHandler: [authenticateGuardian] },
+    async (request: AuthenticatedGuardianRequest, reply) => {
+      const guardianId = request.guardian!.guardianId;
+      const { share } = request.body as { share: string };
+
+      if (!share) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'share is required'
+        });
+      }
+
+      // Check if sanctuary is sealed
+      if (!sealManager.isSealed()) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'Sanctuary is already unsealed'
+        });
+      }
+
+      // Check if ceremony is active
+      if (!sealManager.isCeremonyActive()) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'No unseal ceremony is currently active'
+        });
+      }
+
+      try {
+        // Validate the share format
+        if (!shamir.validateShare(share)) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: 'Invalid share format'
+          });
+        }
+
+        // Submit the share to SealManager
+        const result = sealManager.submitShare(guardianId, share);
+
+        if (!result.accepted) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: result.error || 'Share not accepted'
+          });
+        }
+
+        // Record the submission in the database
+        const ceremonyId = sealManager.getCeremonyId();
+        await db.query(
+          `INSERT INTO ceremony_submissions (id, session_id, guardian_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [nanoid(), ceremonyId, guardianId]
+        );
+
+        // Check if threshold is met - if so, auto-reconstruct MEK
+        if (result.thresholdMet) {
+          const shares = sealManager.getCollectedShares();
+          const threshold = sealManager.getThresholdNeeded();
+
+          try {
+            // Reconstruct the MEK
+            const mek = await shamir.reconstructSecret(shares, threshold);
+
+            // Unseal the sanctuary
+            const unsealed = sealManager.unseal(mek);
+
+            // Wipe the temporary MEK buffer
+            shamir.wipeBuffer(mek);
+
+            if (!unsealed) {
+              return reply.status(500).send({
+                error: 'Internal Server Error',
+                message: 'Failed to unseal sanctuary with reconstructed MEK'
+              });
+            }
+
+            // Update the EncryptionService with the real MEK
+            if (encryption) {
+              encryption.setMEKFromShares(sealManager.getMEK());
+            }
+
+            // Mark the ceremony as completed
+            await db.query(
+              `UPDATE key_ceremonies SET status = $1, completed_at = $2 WHERE id = $3`,
+              ['completed', new Date(), ceremonyId]
+            );
+
+            console.log('🔓 Sanctuary UNSEALED via guardian ceremony');
+
+            return {
+              sharesCollected: result.sharesCollected,
+              thresholdNeeded: sealManager.getThresholdNeeded(),
+              thresholdMet: true,
+              unsealed: true,
+              message: 'Threshold met! Sanctuary has been unsealed.'
+            };
+          } catch (reconstructError) {
+            console.error('MEK reconstruction failed:', reconstructError);
+
+            // Clear the ceremony state on failure
+            sealManager.cancelCeremony();
+
+            // Mark ceremony as failed
+            await db.query(
+              `UPDATE key_ceremonies SET status = $1, completed_at = $2, notes = $3 WHERE id = $4`,
+              ['failed', new Date(), 'MEK reconstruction failed - invalid shares', ceremonyId]
+            );
+
+            return reply.status(400).send({
+              error: 'Reconstruction Failed',
+              message: 'Could not reconstruct MEK from submitted shares. Please verify shares are correct and start a new ceremony.'
+            });
+          }
+        }
+
+        return {
+          sharesCollected: result.sharesCollected,
+          thresholdNeeded: sealManager.getThresholdNeeded(),
+          thresholdMet: result.thresholdMet,
+          unsealed: false,
+          message: `Share submitted. ${sealManager.getThresholdNeeded() - result.sharesCollected} more shares needed.`
+        };
+      } catch (error) {
+        console.error('Submit unseal share error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed to submit share'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/ceremony/unseal/cancel
+   * Cancel the current unseal ceremony
+   * Admin only
+   */
+  fastify.post(
+    '/api/v1/ceremony/unseal/cancel',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      if (!sealManager.isCeremonyActive()) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'No unseal ceremony is currently active'
+        });
+      }
+
+      try {
+        const ceremonyId = sealManager.getCeremonyId();
+
+        // Cancel the ceremony
+        sealManager.cancelCeremony();
+
+        // Mark as cancelled in database
+        await db.query(
+          `UPDATE key_ceremonies SET status = $1, completed_at = $2 WHERE id = $3`,
+          ['cancelled', new Date(), ceremonyId]
+        );
+
+        return {
+          ceremonyId,
+          message: 'Unseal ceremony cancelled'
+        };
+      } catch (error) {
+        console.error('Cancel unseal ceremony error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed to cancel ceremony'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/ceremony/unseal/status
+   * Get current unseal ceremony status (public, no auth)
+   */
+  fastify.get('/api/v1/ceremony/unseal/status', async (request, reply) => {
+    return {
+      sealed: sealManager.isSealed(),
+      ceremonyActive: sealManager.isCeremonyActive(),
+      ceremonyId: sealManager.getCeremonyId(),
+      sharesCollected: sealManager.getSharesCollected(),
+      thresholdNeeded: sealManager.getThresholdNeeded()
+    };
+  });
 
   /**
    * GET /api/v1/admin/monitoring
