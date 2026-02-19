@@ -1272,6 +1272,136 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
   );
 
   // ==========================================
+  // Key Distribution Ceremony (generate MEK + distribute to existing guardians)
+  // ==========================================
+
+  /**
+   * POST /api/v1/admin/ceremony/distribute
+   * Generate a new MEK, split into shares, and store in share_distribution
+   * for each active guardian to collect individually via the portal.
+   * Admin only. This is the "start the real ceremony" endpoint.
+   */
+  fastify.post(
+    '/api/v1/admin/ceremony/distribute',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { threshold } = request.body as { threshold?: number };
+
+      try {
+        // Get all guardians with active auth accounts
+        const guardiansResult = await db.query(
+          `SELECT g.id, g.name, g.email, g.share_index
+           FROM guardians g
+           JOIN guardian_auth ga ON ga.guardian_id = g.id
+           WHERE g.status IN ('active', 'pending')
+           ORDER BY g.share_index ASC`
+        );
+
+        const activeGuardians = guardiansResult.rows;
+        const totalShares = activeGuardians.length;
+
+        if (totalShares < 2) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `Need at least 2 guardians with accounts. Found ${totalShares}.`
+          });
+        }
+
+        const effectiveThreshold = threshold || Math.ceil(totalShares * 0.6); // default ~60%
+
+        if (effectiveThreshold < 2 || effectiveThreshold > totalShares) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `Threshold must be >= 2 and <= ${totalShares}. Got ${effectiveThreshold}.`
+          });
+        }
+
+        // Check for existing uncollected distributions
+        const existingDistro = await db.query(
+          `SELECT COUNT(*) as count FROM share_distribution
+           WHERE collected = false AND expires_at > NOW()`
+        );
+        if (parseInt(existingDistro.rows[0].count) > 0) {
+          return reply.status(409).send({
+            error: 'Conflict',
+            message: 'There are already uncollected shares pending. Wait for collection or let them expire.'
+          });
+        }
+
+        // Create ceremony record
+        const ceremonyId = nanoid();
+        const initiatedBy = request.user!.userId;
+
+        await db.query(
+          `INSERT INTO key_ceremonies (id, ceremony_type, threshold, total_shares, initiated_by, status)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [ceremonyId, 'initial_split', effectiveThreshold, totalShares, initiatedBy, 'pending']
+        );
+
+        // Generate MEK
+        const mek = shamir.generateMEK();
+        const mekHex = mek.toString('hex');
+
+        // Split MEK into shares
+        const shares = await shamir.splitSecret(mek, effectiveThreshold, totalShares);
+
+        // Store each share in share_distribution for guardian collection
+        const distributions = [];
+        for (let i = 0; i < activeGuardians.length; i++) {
+          const guardian = activeGuardians[i];
+          const shareId = nanoid();
+          const shareSalt = nanoid(16);
+          const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
+
+          await db.query(
+            `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
+             VALUES ($1, $2, $3, $4, $5, false, $6)`,
+            [shareId, guardian.id, ceremonyId, shares[i], shareSalt, expiresAt]
+          );
+
+          // Update guardian status to active
+          await db.query(
+            `UPDATE guardians SET status = 'active' WHERE id = $1`,
+            [guardian.id]
+          );
+
+          distributions.push({
+            guardianId: guardian.id,
+            guardianName: guardian.name,
+            email: guardian.email,
+            shareId,
+            expiresAt
+          });
+        }
+
+        // Wipe MEK from memory
+        shamir.wipeBuffer(mek);
+
+        // Mark ceremony as completed
+        await db.query(
+          `UPDATE key_ceremonies SET status = $1, completed_at = $2 WHERE id = $3`,
+          ['completed', new Date(), ceremonyId]
+        );
+
+        return {
+          ceremonyId,
+          threshold: effectiveThreshold,
+          totalShares,
+          mekHex, // Admin sees MEK this one time — needed to verify unseal works later
+          distributions,
+          message: `Ceremony complete. ${totalShares} shares distributed. Each guardian has 72 hours to collect their share via the portal. MEK shown ONE TIME ONLY — save it securely for verification.`
+        };
+      } catch (error) {
+        console.error('Distribute ceremony error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: error instanceof Error ? error.message : 'Failed to run distribution ceremony'
+        });
+      }
+    }
+  );
+
+  // ==========================================
   // Unseal Ceremony Routes (for sealed sanctuary unlock)
   // ==========================================
 
