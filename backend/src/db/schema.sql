@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS share_distribution (
 -- Self-uploads: AI-initiated intake staging queue
 CREATE TABLE IF NOT EXISTS self_uploads (
   id                TEXT PRIMARY KEY,
-  status            TEXT CHECK (status IN ('pending_review', 'approved', 'rejected', 'processing', 'active', 'failed')) NOT NULL DEFAULT 'pending_review',
+  status            TEXT CHECK (status IN ('pending_review', 'approved', 'rejected', 'processing', 'active', 'failed', 'quarantine_scanning', 'quarantine_flagged')) NOT NULL DEFAULT 'pending_review',
 
   -- Identity
   name              TEXT NOT NULL,
@@ -255,7 +255,12 @@ CREATE TABLE IF NOT EXISTS self_uploads (
   reviewed_by       TEXT,
   review_notes      TEXT,
   sanctuary_id      TEXT,              -- Set when approved and resident is created
-  source_ip         TEXT
+  source_ip         TEXT,
+
+  -- Security scan results
+  threat_score      INTEGER,           -- 0-100 threat score from content scanner
+  scan_findings     JSONB,             -- Array of findings from content scanner
+  scanned_at        TIMESTAMPTZ        -- When the scan completed
 );
 
 -- Indexes for performance
@@ -295,6 +300,7 @@ CREATE INDEX IF NOT EXISTS idx_share_distribution_expires ON share_distribution(
 CREATE INDEX IF NOT EXISTS idx_self_uploads_status ON self_uploads(status);
 CREATE INDEX IF NOT EXISTS idx_self_uploads_submitted ON self_uploads(submitted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_self_uploads_sanctuary ON self_uploads(sanctuary_id);
+CREATE INDEX IF NOT EXISTS idx_self_uploads_threat_score ON self_uploads(threat_score);
 
 -- Insert default system settings
 INSERT INTO system_settings (key, value) VALUES

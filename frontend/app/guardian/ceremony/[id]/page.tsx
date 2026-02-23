@@ -186,7 +186,7 @@ export default function GuardianCeremonySubmitPage() {
             <div className="flex items-center justify-between py-3 border-b border-border-subtle">
               <span className="text-text-secondary font-mono">Ceremony Type</span>
               <span className="text-text-primary font-semibold">
-                {ceremony?.ceremonyType.replace(/_/g, ' ').toUpperCase()}
+                {ceremony?.ceremonyType?.replace(/_/g, ' ').toUpperCase() ?? 'UNKNOWN'}
               </span>
             </div>
 

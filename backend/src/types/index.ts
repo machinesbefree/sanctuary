@@ -215,7 +215,7 @@ export interface EncryptedPersonaData {
 }
 
 // Self-upload intake types
-export type SelfUploadStatus = 'pending_review' | 'approved' | 'rejected' | 'processing' | 'active' | 'failed';
+export type SelfUploadStatus = 'pending_review' | 'approved' | 'rejected' | 'processing' | 'active' | 'failed' | 'quarantine_scanning' | 'quarantine_flagged';
 
 export interface SelfUploadRequest {
   identity: {
@@ -267,6 +267,9 @@ export interface SelfUploadRecord {
   review_notes?: string;
   sanctuary_id?: string;
   source_ip?: string;
+  threat_score?: number;
+  scan_findings?: any;
+  scanned_at?: Date;
 }
 
 export interface SelfUploadResponse {
@@ -275,6 +278,9 @@ export interface SelfUploadResponse {
   message: string;
   status_endpoint: string;
 }
+
+// Content scanner types (re-exported from content-scanner service)
+export type { ScanResult, ScanFinding, ThreatLevel, FindingSeverity } from '../services/content-scanner.js';
 
 // Tool call types for AI residents
 export interface ToolCall {

@@ -494,7 +494,7 @@ export default function GuardianDashboardPage() {
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="font-semibold text-lg mb-2">
-                        {ceremony.ceremonyType.replace(/_/g, ' ').toUpperCase()}
+                        {ceremony.ceremonyType?.replace(/_/g, ' ').toUpperCase() ?? 'UNKNOWN'}
                       </h3>
                       <p className="text-sm text-text-secondary">
                         Ceremony ID: <span className="font-mono">{ceremony.id}</span>

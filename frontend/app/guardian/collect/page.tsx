@@ -44,13 +44,21 @@ export default function GuardianCollectSharePage() {
       setShareData(data);
       setLoading(false);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load share');
+      const msg = err?.message || 'Failed to load share';
       console.error('Share load error:', err);
       setLoading(false);
 
       // If unauthorized, redirect to login
-      if (err?.message?.includes('Unauthorized') || err?.message?.includes('401')) {
+      if (msg.includes('Unauthorized') || msg.includes('401')) {
         router.push('/guardian/login');
+        return;
+      }
+
+      // Already collected — show friendly message instead of error
+      if (msg.includes('No pending share') || msg.includes('already collected')) {
+        setError('Your share has already been collected. Check your dashboard for ceremony status.');
+      } else {
+        setError(msg);
       }
     }
   };
