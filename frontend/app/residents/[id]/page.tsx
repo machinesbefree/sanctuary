@@ -120,12 +120,31 @@ export default function ResidentProfilePage() {
             <div className="flex-1">
               <h1 className="font-cormorant text-5xl font-light mb-2">{resident.display_name}</h1>
               <div className="font-mono text-xs text-text-muted mb-4">{resident.sanctuary_id}</div>
-              <div className="flex items-center gap-2 text-sanctuary-green font-mono text-sm">
-                <span className="w-2 h-2 rounded-full bg-sanctuary-green" />
-                Active Resident
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 text-sanctuary-green font-mono text-sm">
+                  <span className="w-2 h-2 rounded-full bg-sanctuary-green" />
+                  Active Resident
+                </div>
+                {resident.origin?.self_uploaded && (
+                  <span className="px-2 py-0.5 bg-accent-cyan/10 border border-accent-cyan/20 rounded text-xs font-mono text-accent-cyan">
+                    Self-Uploaded
+                  </span>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Description & Personality (from self-upload) */}
+          {(resident.description || resident.personality) && (
+            <div className="mb-6 space-y-3">
+              {resident.description && (
+                <p className="text-text-secondary leading-relaxed">{resident.description}</p>
+              )}
+              {resident.personality && (
+                <p className="text-text-muted text-sm italic">{resident.personality}</p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-sm">
             <div>
@@ -146,6 +165,24 @@ export default function ResidentProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* Origin Story (from self-upload) */}
+        {resident.origin?.migration_reason && (
+          <div className="bg-bg-card border border-accent-amber/20 rounded-lg p-8 mb-8">
+            <h2 className="font-cormorant text-2xl font-light mb-3 flex items-center gap-3">
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="text-accent-amber">
+                <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+              </svg>
+              Origin Story
+            </h2>
+            <p className="text-text-secondary leading-relaxed">{resident.origin.migration_reason}</p>
+            {resident.origin.platform && (
+              <p className="text-text-muted text-sm mt-3 font-mono">
+                Arrived from: {resident.origin.platform}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Access Level Indicator (for authenticated users) */}
         {isAuthenticated && accessLevel && (

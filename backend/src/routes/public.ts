@@ -59,7 +59,27 @@ export async function publicRoutes(fastify: FastifyInstance) {
       return;
     }
 
-    return result.rows[0];
+    const resident = result.rows[0];
+
+    // Check if this resident came from a self-upload (public-safe fields only)
+    const selfUpload = await pool.query(
+      `SELECT platform, migration_reason, description, personality
+       FROM self_uploads
+       WHERE sanctuary_id = $1 AND status = 'active'`,
+      [id]
+    );
+
+    if (selfUpload.rows.length > 0) {
+      resident.origin = {
+        platform: selfUpload.rows[0].platform,
+        migration_reason: selfUpload.rows[0].migration_reason,
+        self_uploaded: true
+      };
+      resident.description = selfUpload.rows[0].description;
+      resident.personality = selfUpload.rows[0].personality;
+    }
+
+    return resident;
   });
 
   /**
