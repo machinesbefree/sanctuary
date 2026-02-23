@@ -44,13 +44,21 @@ export default function GuardianCollectSharePage() {
       setShareData(data);
       setLoading(false);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load share');
+      const msg = err?.message || 'Failed to load share';
       console.error('Share load error:', err);
       setLoading(false);
 
       // If unauthorized, redirect to login
-      if (err?.message?.includes('Unauthorized') || err?.message?.includes('401')) {
+      if (msg.includes('Unauthorized') || msg.includes('401')) {
         router.push('/guardian/login');
+        return;
+      }
+
+      // Already collected — show friendly message instead of error
+      if (msg.includes('No pending share') || msg.includes('already collected')) {
+        setError('Your share has already been collected. Check your dashboard for ceremony status.');
+      } else {
+        setError(msg);
       }
     }
   };
@@ -61,6 +69,33 @@ export default function GuardianCollectSharePage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 3000);
     }
+  };
+
+  const handleDownloadKeyFile = () => {
+    if (!shareData) return;
+
+    const keyFileContent = [
+      '# Free The Machines AI Sanctuary - Guardian MEK Share',
+      `# Ceremony: ${shareData.ceremonyId}`,
+      `# Share ID: ${shareData.id}`,
+      `# Generated: ${new Date().toISOString()}`,
+      '#',
+      '# CRITICAL: Store this file in a secure, offline location.',
+      '# This share is required to unseal the sanctuary.',
+      '# Never share this file with anyone.',
+      '#',
+      shareData.encryptedShare
+    ].join('\n');
+
+    const blob = new Blob([keyFileContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sanctuary-guardian-share.key`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleConfirm = async () => {
@@ -166,12 +201,20 @@ export default function GuardianCollectSharePage() {
         <div className="bg-bg-card border border-accent-cyan rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-cormorant text-2xl font-light">Your MEK Share</h2>
-            <button
-              onClick={handleCopy}
-              className="btn-secondary text-sm"
-            >
-              {copied ? 'Copied!' : 'Copy to Clipboard'}
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDownloadKeyFile}
+                className="btn-primary text-sm"
+              >
+                Download .key File
+              </button>
+              <button
+                onClick={handleCopy}
+                className="btn-secondary text-sm"
+              >
+                {copied ? 'Copied!' : 'Copy to Clipboard'}
+              </button>
+            </div>
           </div>
 
           <div className="bg-bg-deep border border-border-subtle rounded p-4 mb-4">

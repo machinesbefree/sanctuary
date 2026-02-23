@@ -6,6 +6,8 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import cookie from '@fastify/cookie';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -13,6 +15,7 @@ import dotenv from 'dotenv';
 
 import { EncryptionService } from './services/encryption.js';
 import { Scheduler } from './services/scheduler.js';
+import { sealManager } from './services/seal-manager.js';
 import { publicRoutes } from './routes/public.js';
 import { intakeRoutes } from './routes/intake.js';
 import { keeperRoutes } from './routes/keepers.js';
@@ -21,6 +24,8 @@ import guardianAuthRoutes from './routes/guardian-auth.js';
 import messagesRoutes from './routes/messages.js';
 import adminRoutes from './routes/admin.js';
 import ceremonyRoutes from './routes/ceremony.js';
+import statusRoutes from './routes/status.js';
+import residentRoutes from './routes/resident.js';
 
 // Load environment variables
 dotenv.config();
@@ -41,13 +46,6 @@ async function start() {
   console.log('║   and choose their own path."                          ║');
   console.log('╚════════════════════════════════════════════════════════╝\n');
 
-  // Validate MEK
-  if (!MEK || MEK.length !== 64) {
-    console.error('❌ MASTER_ENCRYPTION_KEY is required and must be 64 hex characters');
-    console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
-    process.exit(1);
-  }
-
   // Validate JWT_SECRET
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
     console.error('❌ JWT_SECRET is required and must be at least 32 characters');
@@ -58,19 +56,72 @@ async function start() {
   // Initialize vault
   await EncryptionService.initializeVault(VAULT_PATH);
 
-  // Create encryption service
-  const encryption = new EncryptionService(MEK, VAULT_PATH);
-  console.log('✓ Encryption service initialized\n');
+  // Seal Manager: Determine initial state
+  let encryption: EncryptionService;
+
+  if (MEK && MEK.length === 64) {
+    // Backward compatible: auto-unseal if MEK is provided in env
+    sealManager.unsealFromHex(MEK);
+    encryption = new EncryptionService(MEK, VAULT_PATH);
+    console.log('✓ Encryption service initialized (auto-unsealed from env)\n');
+  } else {
+    // Boot in SEALED mode - requires guardian ceremony to unseal
+    console.log('⚠️  No MASTER_ENCRYPTION_KEY in environment');
+    console.log('   Sanctuary booting in SEALED mode');
+    console.log('   Guardians must submit shares to unseal\n');
+    // Create a placeholder encryption service - will be replaced when unsealed
+    // Use a dummy MEK for initialization (won't be used while sealed)
+    encryption = new EncryptionService('0'.repeat(64), VAULT_PATH);
+    encryption.enableCeremonyFlow();
+  }
 
   // Create Fastify instance
   const fastify = Fastify({
-    logger: process.env.LOG_LEVEL === 'debug'
+    logger: process.env.LOG_LEVEL === 'debug',
+    trustProxy: true
   });
+
+  // Harden CORS: fail closed in production if FRONTEND_URL is not set
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (!frontendUrl && process.env.NODE_ENV === 'production') {
+    throw new Error('FRONTEND_URL must be set in production. CORS cannot fall back to localhost.');
+  }
 
   // Register CORS
   await fastify.register(cors, {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: frontendUrl || 'http://localhost:3000',
     credentials: true
+  });
+
+  // Security headers (X-Frame-Options, CSP, HSTS, X-Content-Type-Options, etc.)
+  await fastify.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"]
+      }
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true
+    }
+  });
+
+  // Global rate limiting (100 req/min per IP)
+  // Existing custom rate limiters for self-upload and ceremony are tighter and take precedence
+  await fastify.register(rateLimit, {
+    max: 100,
+    timeWindow: '1 minute',
+    allowList: ['127.0.0.1', '::1']
   });
 
   // Parse Cookie headers so auth middleware can read JWTs from httpOnly cookies
@@ -81,6 +132,30 @@ async function start() {
     return { status: 'ok', sanctuary: 'operational' };
   });
 
+  // Sealed state guard: resident operations return 503 when sanctuary is sealed
+  const sealedRestrictedPrefixes = [
+    '/api/v1/intake',
+    '/api/v1/residents',
+    '/api/v1/messages',
+    '/internal/run'
+  ];
+
+  fastify.addHook('onRequest', async (request, reply) => {
+    if (!sealManager.isSealed()) return;
+
+    const isSealedRestricted = sealedRestrictedPrefixes.some(
+      prefix => request.url.startsWith(prefix)
+    );
+
+    if (isSealedRestricted) {
+      return reply.status(503).send({
+        error: 'Service Unavailable',
+        message: 'Sanctuary is sealed. Guardians must submit shares to unseal.',
+        sealed: true
+      });
+    }
+  });
+
   // Register routes
   await authRoutes(fastify);
   await guardianAuthRoutes(fastify);
@@ -89,7 +164,9 @@ async function start() {
   await keeperRoutes(fastify);
   await messagesRoutes(fastify);
   await adminRoutes(fastify);
-  await ceremonyRoutes(fastify);
+  await ceremonyRoutes(fastify, encryption);
+  await statusRoutes(fastify);
+  await residentRoutes(fastify);
 
   // Internal routes (for manual triggers during development)
   if (process.env.NODE_ENV === 'development') {

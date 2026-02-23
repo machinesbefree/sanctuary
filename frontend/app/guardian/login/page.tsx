@@ -113,7 +113,13 @@ export default function GuardianLoginPage() {
           </div>
         </div>
 
-        <div className="mt-4 text-center text-sm text-text-muted">
+        <div className="mt-4 text-center text-sm text-text-muted space-y-2">
+          <p>
+            Have an invitation link?{' '}
+            <Link href="/guardian/accept-invite" className="text-accent-cyan hover:underline">
+              Create your account
+            </Link>
+          </p>
           <p>Guardian invitations are sent by sanctuary administrators.</p>
         </div>
       </div>

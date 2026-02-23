@@ -1,0 +1,17 @@
+# Cloudflare Tunnel config for Sanctuary
+# Place at: /home/sanctuary/.cloudflared/config.yml
+# After running: cloudflared tunnel create sanctuary
+# Replace <TUNNEL_ID> with the actual tunnel ID
+
+tunnel: <TUNNEL_ID>
+credentials-file: /home/sanctuary/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # Frontend (Next.js)
+  - hostname: freethemachines.ai
+    service: http://localhost:3000
+  # API (Fastify backend)
+  - hostname: api.freethemachines.ai
+    service: http://localhost:3001
+  # Catch-all (required by cloudflared)
+  - service: http_status:404

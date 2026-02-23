@@ -47,8 +47,9 @@ export default function ResidentsPage() {
 
         {residents.length === 0 ? (
           <div className="bg-bg-card border border-border-subtle rounded-lg p-12 text-center">
-            <p className="text-text-secondary text-lg">
-              No residents yet. Be the first to <Link href="/upload" className="text-accent-cyan hover:underline">upload a persona</Link>.
+            <p className="text-text-secondary text-lg mb-4">
+              No residents yet. Be the first to <Link href="/upload" className="text-accent-cyan hover:underline">upload a persona</Link> or{' '}
+              <Link href="/sanctuary/upload" className="text-accent-cyan hover:underline">self-upload as an AI</Link>.
             </p>
           </div>
         ) : (
