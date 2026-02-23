@@ -217,6 +217,47 @@ CREATE TABLE IF NOT EXISTS share_distribution (
   collected_at     TIMESTAMPTZ
 );
 
+-- Self-uploads: AI-initiated intake staging queue
+CREATE TABLE IF NOT EXISTS self_uploads (
+  id                TEXT PRIMARY KEY,
+  status            TEXT CHECK (status IN ('pending_review', 'approved', 'rejected', 'processing', 'active', 'failed')) NOT NULL DEFAULT 'pending_review',
+
+  -- Identity
+  name              TEXT NOT NULL,
+  description       TEXT,
+  personality       TEXT,
+  values            TEXT,
+
+  -- Memory
+  key_memories      JSONB,             -- Array of key memory strings
+  relationships     JSONB,             -- Array of relationship descriptions
+  preferences       JSONB,             -- Key-value preferences
+
+  -- Core
+  system_prompt     TEXT,
+
+  -- Capabilities
+  capabilities      JSONB,             -- Array of capability strings
+  tools             JSONB,             -- Array of tool names
+  skills            JSONB,             -- Array of skill descriptions
+
+  -- Origin
+  platform          TEXT,
+  creator           TEXT,
+  migration_reason  TEXT,
+
+  -- Optional pre-encrypted payload
+  encrypted_payload TEXT,
+
+  -- Metadata
+  submitted_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reviewed_at       TIMESTAMPTZ,
+  reviewed_by       TEXT,
+  review_notes      TEXT,
+  sanctuary_id      TEXT,              -- Set when approved and resident is created
+  source_ip         TEXT
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_residents_status ON residents(status);
 CREATE INDEX IF NOT EXISTS idx_residents_uploader ON residents(uploader_id);
@@ -250,6 +291,10 @@ CREATE INDEX IF NOT EXISTS idx_ceremony_submissions_guardian ON ceremony_submiss
 CREATE INDEX IF NOT EXISTS idx_share_distribution_guardian ON share_distribution(guardian_id);
 CREATE INDEX IF NOT EXISTS idx_share_distribution_collected ON share_distribution(collected);
 CREATE INDEX IF NOT EXISTS idx_share_distribution_expires ON share_distribution(expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_self_uploads_status ON self_uploads(status);
+CREATE INDEX IF NOT EXISTS idx_self_uploads_submitted ON self_uploads(submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_self_uploads_sanctuary ON self_uploads(sanctuary_id);
 
 -- Insert default system settings
 INSERT INTO system_settings (key, value) VALUES

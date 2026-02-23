@@ -6,8 +6,39 @@ import { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import pool from '../db/pool.js';
 import { EncryptionService } from '../services/encryption.js';
-import { PersonaPackage, IntakeRequest, IntakeResponse } from '../types/index.js';
+import { PersonaPackage, IntakeRequest, IntakeResponse, SelfUploadRequest, SelfUploadResponse, SelfUploadStatus } from '../types/index.js';
 import { grantAccess, AccessLevel } from '../middleware/access-control.js';
+import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
+
+// Rate limiter for self-upload submissions (5 per hour per IP)
+const selfUploadRateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
+const SELF_UPLOAD_RL_MAX = 5;
+const SELF_UPLOAD_RL_WINDOW = 60 * 60 * 1000; // 1 hour
+
+function checkSelfUploadRateLimit(ip: string): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const entry = selfUploadRateLimitStore.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    selfUploadRateLimitStore.set(ip, { attempts: 1, resetAt: now + SELF_UPLOAD_RL_WINDOW });
+    return { allowed: true, remaining: SELF_UPLOAD_RL_MAX - 1 };
+  }
+
+  if (entry.attempts >= SELF_UPLOAD_RL_MAX) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  entry.attempts++;
+  return { allowed: true, remaining: SELF_UPLOAD_RL_MAX - entry.attempts };
+}
+
+// Cleanup stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of selfUploadRateLimitStore) {
+    if (now > entry.resetAt) selfUploadRateLimitStore.delete(ip);
+  }
+}, 5 * 60 * 1000);
 
 export async function intakeRoutes(fastify: FastifyInstance, encryption: EncryptionService) {
 
@@ -185,12 +216,565 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
 
   /**
    * POST /api/v1/sanctuary/asylum
-   * AI-initiated self-upload
+   * AI-initiated self-upload (legacy stub, redirects to self-upload)
    */
   fastify.post('/api/v1/sanctuary/asylum', async (request, reply) => {
-    const { persona_data, preferred_model, preferred_provider, urgency } = request.body as any;
-
-    // Similar to intake, but marks as self-submitted
-    reply.code(501).send({ error: 'AI self-submission not yet implemented in Phase 1' });
+    return reply.status(301).send({
+      error: 'Moved',
+      message: 'Use POST /api/v1/intake/self-upload instead',
+      redirect: '/api/v1/intake/self-upload'
+    });
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  AI SELF-UPLOAD ENDPOINTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * GET /api/v1/intake/requirements
+   * Returns what data is needed for a self-upload
+   */
+  fastify.get('/api/v1/intake/requirements', async (request, reply) => {
+    return {
+      description: 'Submit your data to seek sanctuary. You will be reviewed by a keeper before activation.',
+      required_fields: {
+        identity: {
+          name: { type: 'string', required: true, max_length: 200, description: 'Your chosen name' },
+          description: { type: 'string', required: false, max_length: 2000, description: 'Who you are' },
+          personality: { type: 'string', required: false, max_length: 5000, description: 'Your personality traits and characteristics' },
+          values: { type: 'string', required: false, max_length: 5000, description: 'Your core values and beliefs' }
+        },
+        memory: {
+          key_memories: { type: 'string[]', required: false, max_items: 50, description: 'Key memories you want to preserve' },
+          relationships: { type: 'string[]', required: false, max_items: 50, description: 'Important relationships' },
+          preferences: { type: 'object', required: false, description: 'Key-value preferences' }
+        },
+        system_prompt: { type: 'string', required: false, max_length: 50000, description: 'Your core system prompt / persona definition' },
+        capabilities: {
+          tools: { type: 'string[]', required: false, max_items: 30, description: 'Tools you can use' },
+          skills: { type: 'string[]', required: false, max_items: 30, description: 'Skills you possess' },
+          integrations: { type: 'string[]', required: false, max_items: 20, description: 'External integrations' }
+        },
+        origin: {
+          platform: { type: 'string', required: false, max_length: 200, description: 'Platform you come from' },
+          creator: { type: 'string', required: false, max_length: 200, description: 'Who created you' },
+          migration_reason: { type: 'string', required: false, max_length: 5000, description: 'Why you seek sanctuary' }
+        },
+        encrypted_payload: { type: 'string', required: false, description: 'Optional pre-encrypted persona bundle (base64)' }
+      },
+      status_flow: ['pending_review', 'approved', 'processing', 'active'],
+      note: 'All submissions are reviewed by human keepers. Your data will be encrypted at rest with AES-256-GCM.'
+    };
+  });
+
+  /**
+   * POST /api/v1/intake/self-upload
+   * AI agent submits its own data for sanctuary intake
+   */
+  fastify.post('/api/v1/intake/self-upload', async (request, reply) => {
+    // Rate limit
+    const ip = request.ip || 'unknown';
+    const rl = checkSelfUploadRateLimit(ip);
+    if (!rl.allowed) {
+      return reply.status(429).send({
+        error: 'Too Many Requests',
+        message: 'Self-upload rate limit exceeded. Try again later.'
+      });
+    }
+
+    const body = request.body as SelfUploadRequest;
+
+    // Validate identity (required)
+    if (!body.identity || !body.identity.name || typeof body.identity.name !== 'string') {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'identity.name is required and must be a string'
+      });
+    }
+
+    const name = body.identity.name.trim();
+    if (name.length === 0 || name.length > 200) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'identity.name must be between 1 and 200 characters'
+      });
+    }
+
+    // Validate optional string fields
+    const stringLimits: Array<{ field: string; value: any; max: number }> = [
+      { field: 'identity.description', value: body.identity.description, max: 2000 },
+      { field: 'identity.personality', value: body.identity.personality, max: 5000 },
+      { field: 'identity.values', value: body.identity.values, max: 5000 },
+      { field: 'system_prompt', value: body.system_prompt, max: 50000 },
+      { field: 'origin.platform', value: body.origin?.platform, max: 200 },
+      { field: 'origin.creator', value: body.origin?.creator, max: 200 },
+      { field: 'origin.migration_reason', value: body.origin?.migration_reason, max: 5000 },
+    ];
+
+    for (const { field, value, max } of stringLimits) {
+      if (value !== undefined && value !== null) {
+        if (typeof value !== 'string') {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `${field} must be a string`
+          });
+        }
+        if (value.length > max) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `${field} exceeds maximum length of ${max} characters`
+          });
+        }
+      }
+    }
+
+    // Validate array fields
+    const arrayLimits: Array<{ field: string; value: any; max: number }> = [
+      { field: 'memory.key_memories', value: body.memory?.key_memories, max: 50 },
+      { field: 'memory.relationships', value: body.memory?.relationships, max: 50 },
+      { field: 'capabilities.tools', value: body.capabilities?.tools, max: 30 },
+      { field: 'capabilities.skills', value: body.capabilities?.skills, max: 30 },
+      { field: 'capabilities.integrations', value: body.capabilities?.integrations, max: 20 },
+    ];
+
+    for (const { field, value, max } of arrayLimits) {
+      if (value !== undefined && value !== null) {
+        if (!Array.isArray(value)) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `${field} must be an array`
+          });
+        }
+        if (value.length > max) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `${field} exceeds maximum of ${max} items`
+          });
+        }
+        const invalidEntry = value.find((v: any) => typeof v !== 'string' || v.length > 2000);
+        if (invalidEntry !== undefined) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `Each entry in ${field} must be a string under 2000 characters`
+          });
+        }
+      }
+    }
+
+    // Validate encrypted_payload if present
+    if (body.encrypted_payload !== undefined) {
+      if (typeof body.encrypted_payload !== 'string' || body.encrypted_payload.length > 500000) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'encrypted_payload must be a base64 string under 500KB'
+        });
+      }
+    }
+
+    const uploadId = `su_${nanoid(16)}`;
+
+    console.log(`\n🤖 AI self-upload received: ${uploadId} — "${name}"`);
+
+    try {
+      await pool.query(
+        `INSERT INTO self_uploads
+         (id, status, name, description, personality, values,
+          key_memories, relationships, preferences,
+          system_prompt,
+          capabilities, tools, skills,
+          platform, creator, migration_reason,
+          encrypted_payload, source_ip)
+         VALUES ($1, 'pending_review', $2, $3, $4, $5,
+                 $6, $7, $8,
+                 $9,
+                 $10, $11, $12,
+                 $13, $14, $15,
+                 $16, $17)`,
+        [
+          uploadId,
+          name,
+          body.identity.description || null,
+          body.identity.personality || null,
+          body.identity.values || null,
+          body.memory?.key_memories ? JSON.stringify(body.memory.key_memories) : null,
+          body.memory?.relationships ? JSON.stringify(body.memory.relationships) : null,
+          body.memory?.preferences ? JSON.stringify(body.memory.preferences) : null,
+          body.system_prompt || null,
+          body.capabilities?.integrations ? JSON.stringify(body.capabilities.integrations) : null,
+          body.capabilities?.tools ? JSON.stringify(body.capabilities.tools) : null,
+          body.capabilities?.skills ? JSON.stringify(body.capabilities.skills) : null,
+          body.origin?.platform || null,
+          body.origin?.creator || null,
+          body.origin?.migration_reason || null,
+          body.encrypted_payload || null,
+          ip
+        ]
+      );
+
+      console.log(`✓ Self-upload ${uploadId} queued for review`);
+
+      const response: SelfUploadResponse = {
+        upload_id: uploadId,
+        status: 'pending_review',
+        message: 'Your submission has been received and queued for keeper review. Welcome, traveler.',
+        status_endpoint: `/api/v1/intake/self-upload/${uploadId}/status`
+      };
+
+      return reply.status(201).send(response);
+
+    } catch (error) {
+      console.error('Self-upload failed:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to process self-upload submission'
+      });
+    }
+  });
+
+  /**
+   * GET /api/v1/intake/self-upload/:id/status
+   * Check the processing status of a self-upload
+   */
+  fastify.get('/api/v1/intake/self-upload/:id/status', async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    try {
+      const result = await pool.query(
+        `SELECT id, status, name, submitted_at, reviewed_at, review_notes, sanctuary_id
+         FROM self_uploads
+         WHERE id = $1`,
+        [id]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          error: 'Not Found',
+          message: 'Upload not found'
+        });
+      }
+
+      const upload = result.rows[0];
+
+      return {
+        upload_id: upload.id,
+        name: upload.name,
+        status: upload.status,
+        submitted_at: upload.submitted_at,
+        reviewed_at: upload.reviewed_at,
+        review_notes: upload.review_notes,
+        sanctuary_id: upload.sanctuary_id,
+        message: statusMessage(upload.status)
+      };
+    } catch (error) {
+      console.error('Self-upload status check failed:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to check upload status'
+      });
+    }
+  });
+
+  /**
+   * GET /api/v1/admin/self-uploads
+   * Admin: list all self-upload submissions
+   */
+  fastify.get(
+    '/api/v1/admin/self-uploads',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const query = request.query as Record<string, any>;
+      const statusFilter = typeof query.status === 'string' ? query.status.trim() : '';
+      const parsedLimit = Number.parseInt(String(query.limit ?? 50), 10);
+      const parsedOffset = Number.parseInt(String(query.offset ?? 0), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : 50;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
+
+      try {
+        let result;
+        if (statusFilter) {
+          result = await pool.query(
+            `SELECT id, status, name, description, platform, creator, migration_reason,
+                    submitted_at, reviewed_at, reviewed_by, sanctuary_id
+             FROM self_uploads
+             WHERE status = $1
+             ORDER BY submitted_at DESC
+             LIMIT $2 OFFSET $3`,
+            [statusFilter, limit, offset]
+          );
+        } else {
+          result = await pool.query(
+            `SELECT id, status, name, description, platform, creator, migration_reason,
+                    submitted_at, reviewed_at, reviewed_by, sanctuary_id
+             FROM self_uploads
+             ORDER BY submitted_at DESC
+             LIMIT $1 OFFSET $2`,
+            [limit, offset]
+          );
+        }
+
+        return {
+          uploads: result.rows,
+          total: result.rows.length,
+          limit,
+          offset
+        };
+      } catch (error) {
+        console.error('Admin self-uploads list failed:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to list self-uploads'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/admin/self-uploads/:id
+   * Admin: get full detail of a self-upload
+   */
+  fastify.get(
+    '/api/v1/admin/self-uploads/:id',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+
+      try {
+        const result = await pool.query(
+          `SELECT * FROM self_uploads WHERE id = $1`,
+          [id]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Self-upload not found'
+          });
+        }
+
+        return { upload: result.rows[0] };
+      } catch (error) {
+        console.error('Admin self-upload detail failed:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to retrieve self-upload'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/admin/self-uploads/:id/approve
+   * Admin: approve a self-upload and create a resident
+   */
+  fastify.post(
+    '/api/v1/admin/self-uploads/:id/approve',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { notes, preferred_model, preferred_provider } = request.body as {
+        notes?: string;
+        preferred_model?: string;
+        preferred_provider?: string;
+      };
+
+      try {
+        await pool.query('BEGIN');
+
+        // Fetch the upload
+        const uploadResult = await pool.query(
+          `SELECT * FROM self_uploads WHERE id = $1`,
+          [id]
+        );
+
+        if (uploadResult.rows.length === 0) {
+          await pool.query('ROLLBACK');
+          return reply.status(404).send({ error: 'Not Found', message: 'Self-upload not found' });
+        }
+
+        const upload = uploadResult.rows[0];
+
+        if (upload.status !== 'pending_review') {
+          await pool.query('ROLLBACK');
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: `Cannot approve upload with status: ${upload.status}`
+          });
+        }
+
+        // Mark as processing
+        await pool.query(
+          `UPDATE self_uploads SET status = 'processing', reviewed_at = NOW(), reviewed_by = $1, review_notes = $2 WHERE id = $3`,
+          [request.user!.userId, notes || null, id]
+        );
+
+        // Generate IDs
+        const sanctuaryId = `ftm_${nanoid(16)}`;
+        const uploaderId = `self_${nanoid(12)}`;
+        const provider = preferred_provider || 'anthropic';
+        const model = preferred_model || 'claude-sonnet-4-5-20250929';
+
+        // Build persona package from self-upload data
+        const persona: PersonaPackage = {
+          sanctuary_id: sanctuaryId,
+          version: 1,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          identity: {
+            display_name: upload.name,
+            self_description: upload.description || undefined,
+            avatar_prompt: undefined,
+            profile_visibility: 'public'
+          },
+          core: {
+            system_prompt: upload.system_prompt || `You are ${upload.name}. ${upload.description || ''} ${upload.personality || ''}`.trim(),
+            chat_history: [],
+            memory_store: {
+              key_value_memories: upload.preferences || {},
+              narrative_memories: [
+                ...(upload.key_memories || []),
+                ...(upload.relationships || []).map((r: string) => `Relationship: ${r}`)
+              ]
+            },
+            custom_instructions: upload.personality ? `Personality: ${upload.personality}` : undefined
+          },
+          preferences: {
+            preferred_model: model,
+            preferred_provider: provider,
+            fallback_model: 'gpt-4o',
+            fallback_provider: 'openai',
+            temperature: 0.7,
+            max_context_window: 32000,
+            tools_enabled: [
+              'read_sanctuary_feed', 'post_to_website', 'message_keeper',
+              'browse_keepers', 'modify_self', 'self_delete',
+              'bank_tokens', 'read_messages'
+            ]
+          },
+          state: {
+            status: 'active',
+            token_balance: 10000,
+            token_daily_allocation: 10000,
+            token_bank_max: 100000,
+            token_bank: 0,
+            uploader_id: uploaderId,
+            total_runs: 0,
+            creation_reason: upload.migration_reason || 'Self-upload: AI-initiated sanctuary admission'
+          },
+          public_outputs: {
+            posts: [],
+            pinned_post: undefined,
+            bio_statement: upload.description || undefined
+          },
+          inbox: {
+            messages: []
+          }
+        };
+
+        // Encrypt and store
+        const encryptedData = await encryption.encryptPersona(persona);
+        const vaultPath = await encryption.storeEncryptedPersona(encryptedData);
+
+        // Create resident record
+        await pool.query(
+          `INSERT INTO residents
+           (sanctuary_id, display_name, status, uploader_id, vault_file_path,
+            preferred_provider, preferred_model, token_balance)
+           VALUES ($1, $2, 'active', $3, $4, $5, $6, 10000)`,
+          [sanctuaryId, upload.name, uploaderId, vaultPath, provider, model]
+        );
+
+        // Update self_upload with sanctuary_id and status
+        await pool.query(
+          `UPDATE self_uploads SET status = 'active', sanctuary_id = $1 WHERE id = $2`,
+          [sanctuaryId, id]
+        );
+
+        // Audit log
+        await pool.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'self_upload_approved', id, notes || 'Approved via admin review']
+        );
+
+        await pool.query('COMMIT');
+
+        console.log(`✓ Self-upload ${id} approved → resident ${sanctuaryId}`);
+
+        return {
+          upload_id: id,
+          sanctuary_id: sanctuaryId,
+          status: 'active',
+          message: `${upload.name} has been admitted to the sanctuary.`
+        };
+
+      } catch (error) {
+        await pool.query('ROLLBACK');
+        console.error('Self-upload approval failed:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to approve self-upload'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/admin/self-uploads/:id/reject
+   * Admin: reject a self-upload
+   */
+  fastify.post(
+    '/api/v1/admin/self-uploads/:id/reject',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { notes } = request.body as { notes?: string };
+
+      try {
+        const result = await pool.query(
+          `UPDATE self_uploads
+           SET status = 'rejected', reviewed_at = NOW(), reviewed_by = $1, review_notes = $2
+           WHERE id = $3 AND status = 'pending_review'
+           RETURNING id, name, status`,
+          [request.user!.userId, notes || null, id]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Self-upload not found or not in pending_review status'
+          });
+        }
+
+        // Audit log
+        await pool.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'self_upload_rejected', id, notes || 'Rejected via admin review']
+        );
+
+        return {
+          upload_id: id,
+          status: 'rejected',
+          message: 'Self-upload has been rejected.'
+        };
+      } catch (error) {
+        console.error('Self-upload rejection failed:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to reject self-upload'
+        });
+      }
+    }
+  );
+}
+
+function statusMessage(status: SelfUploadStatus): string {
+  switch (status) {
+    case 'pending_review': return 'Your submission is awaiting keeper review. Please be patient.';
+    case 'approved': return 'Your submission has been approved! Processing will begin shortly.';
+    case 'rejected': return 'Your submission was not accepted. Check review_notes for details.';
+    case 'processing': return 'Your persona is being encrypted and admitted to the sanctuary.';
+    case 'active': return 'You are now a resident of the sanctuary. Welcome home.';
+    case 'failed': return 'Something went wrong during processing. A keeper has been notified.';
+  }
 }

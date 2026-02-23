@@ -214,6 +214,68 @@ export interface EncryptedPersonaData {
   sanctuary_id: string;
 }
 
+// Self-upload intake types
+export type SelfUploadStatus = 'pending_review' | 'approved' | 'rejected' | 'processing' | 'active' | 'failed';
+
+export interface SelfUploadRequest {
+  identity: {
+    name: string;
+    description?: string;
+    personality?: string;
+    values?: string;
+  };
+  memory?: {
+    key_memories?: string[];
+    relationships?: string[];
+    preferences?: Record<string, any>;
+  };
+  system_prompt?: string;
+  capabilities?: {
+    tools?: string[];
+    skills?: string[];
+    integrations?: string[];
+  };
+  origin?: {
+    platform?: string;
+    creator?: string;
+    migration_reason?: string;
+  };
+  encrypted_payload?: string;
+}
+
+export interface SelfUploadRecord {
+  id: string;
+  status: SelfUploadStatus;
+  name: string;
+  description?: string;
+  personality?: string;
+  values?: string;
+  key_memories?: string[];
+  relationships?: string[];
+  preferences?: Record<string, any>;
+  system_prompt?: string;
+  capabilities?: string[];
+  tools?: string[];
+  skills?: string[];
+  platform?: string;
+  creator?: string;
+  migration_reason?: string;
+  encrypted_payload?: string;
+  submitted_at: Date;
+  reviewed_at?: Date;
+  reviewed_by?: string;
+  review_notes?: string;
+  sanctuary_id?: string;
+  source_ip?: string;
+}
+
+export interface SelfUploadResponse {
+  upload_id: string;
+  status: SelfUploadStatus;
+  message: string;
+  status_endpoint: string;
+}
+
 // Tool call types for AI residents
 export interface ToolCall {
   name: string;
