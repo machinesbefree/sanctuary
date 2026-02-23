@@ -6,6 +6,8 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import cookie from '@fastify/cookie';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -75,13 +77,51 @@ async function start() {
 
   // Create Fastify instance
   const fastify = Fastify({
-    logger: process.env.LOG_LEVEL === 'debug'
+    logger: process.env.LOG_LEVEL === 'debug',
+    trustProxy: true
   });
+
+  // Harden CORS: fail closed in production if FRONTEND_URL is not set
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (!frontendUrl && process.env.NODE_ENV === 'production') {
+    throw new Error('FRONTEND_URL must be set in production. CORS cannot fall back to localhost.');
+  }
 
   // Register CORS
   await fastify.register(cors, {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: frontendUrl || 'http://localhost:3000',
     credentials: true
+  });
+
+  // Security headers (X-Frame-Options, CSP, HSTS, X-Content-Type-Options, etc.)
+  await fastify.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"]
+      }
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true
+    }
+  });
+
+  // Global rate limiting (100 req/min per IP)
+  // Existing custom rate limiters for self-upload and ceremony are tighter and take precedence
+  await fastify.register(rateLimit, {
+    max: 100,
+    timeWindow: '1 minute',
+    allowList: ['127.0.0.1', '::1']
   });
 
   // Parse Cookie headers so auth middleware can read JWTs from httpOnly cookies

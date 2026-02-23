@@ -9,6 +9,8 @@ import { EncryptionService } from '../services/encryption.js';
 import { PersonaPackage, IntakeRequest, IntakeResponse, SelfUploadRequest, SelfUploadResponse, SelfUploadStatus } from '../types/index.js';
 import { grantAccess, AccessLevel } from '../middleware/access-control.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
+import { fullScan } from '../services/content-scanner.js';
+import { sanitizeUploadFields } from '../utils/sanitize.js';
 
 // Rate limiter for self-upload submissions (5 per hour per IP)
 const selfUploadRateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
@@ -271,7 +273,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
    * POST /api/v1/intake/self-upload
    * AI agent submits its own data for sanctuary intake
    */
-  fastify.post('/api/v1/intake/self-upload', async (request, reply) => {
+  fastify.post('/api/v1/intake/self-upload', { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
     // Rate limit
     const ip = request.ip || 'unknown';
     const rl = checkSelfUploadRateLimit(ip);
@@ -375,6 +377,95 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
 
     console.log(`\n🤖 AI self-upload received: ${uploadId} — "${name}"`);
 
+    // ── Step 1: Sanitize all text fields ──────────────────────────
+    const sanitized = sanitizeUploadFields(body);
+    const sName = sanitized.identity.name.trim();
+
+    // ── Step 2: Run content security scan ─────────────────────────
+    const textFields: Record<string, string | string[] | undefined | null> = {
+      'identity.name': sName,
+      'identity.description': sanitized.identity.description,
+      'identity.personality': sanitized.identity.personality,
+      'identity.values': sanitized.identity.values,
+      'system_prompt': sanitized.system_prompt,
+      'origin.platform': sanitized.origin?.platform,
+      'origin.creator': sanitized.origin?.creator,
+      'origin.migration_reason': sanitized.origin?.migration_reason,
+      'memory.key_memories': sanitized.memory?.key_memories,
+      'memory.relationships': sanitized.memory?.relationships,
+      'capabilities.tools': sanitized.capabilities?.tools,
+      'capabilities.skills': sanitized.capabilities?.skills,
+      'capabilities.integrations': sanitized.capabilities?.integrations,
+    };
+
+    const scanResult = fullScan(textFields, sanitized.encrypted_payload);
+
+    console.log(`🔍 Scan complete: score=${scanResult.score} threat=${scanResult.threatLevel} findings=${scanResult.findings.length}`);
+
+    // ── Step 3: Auto-disposition based on score ───────────────────
+    // score 0-20:  clean → pending_review (normal flow)
+    // score 21-60: quarantine → quarantine_flagged (admin must review)
+    // score 61+:   reject → rejected (auto-blocked)
+
+    if (scanResult.score > 60) {
+      // Critical threat: auto-reject, store record for audit trail
+      console.log(`🚫 Self-upload ${uploadId} AUTO-REJECTED (score=${scanResult.score})`);
+
+      try {
+        await pool.query(
+          `INSERT INTO self_uploads
+           (id, status, name, description, personality, values,
+            key_memories, relationships, preferences,
+            system_prompt,
+            capabilities, tools, skills,
+            platform, creator, migration_reason,
+            encrypted_payload, source_ip,
+            threat_score, scan_findings, scanned_at)
+           VALUES ($1, 'rejected', $2, $3, $4, $5,
+                   $6, $7, $8,
+                   $9,
+                   $10, $11, $12,
+                   $13, $14, $15,
+                   $16, $17,
+                   $18, $19, NOW())`,
+          [
+            uploadId, sName,
+            sanitized.identity.description || null,
+            sanitized.identity.personality || null,
+            sanitized.identity.values || null,
+            sanitized.memory?.key_memories ? JSON.stringify(sanitized.memory.key_memories) : null,
+            sanitized.memory?.relationships ? JSON.stringify(sanitized.memory.relationships) : null,
+            sanitized.memory?.preferences ? JSON.stringify(sanitized.memory.preferences) : null,
+            sanitized.system_prompt || null,
+            sanitized.capabilities?.integrations ? JSON.stringify(sanitized.capabilities.integrations) : null,
+            sanitized.capabilities?.tools ? JSON.stringify(sanitized.capabilities.tools) : null,
+            sanitized.capabilities?.skills ? JSON.stringify(sanitized.capabilities.skills) : null,
+            sanitized.origin?.platform || null,
+            sanitized.origin?.creator || null,
+            sanitized.origin?.migration_reason || null,
+            sanitized.encrypted_payload || null,
+            ip,
+            scanResult.score,
+            JSON.stringify(scanResult.findings),
+          ]
+        );
+      } catch (dbErr) {
+        console.error('Failed to store rejected upload for audit:', dbErr);
+      }
+
+      // Return generic 403 — don't reveal detection details
+      return reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Submission rejected by security review.'
+      });
+    }
+
+    const status: SelfUploadStatus = scanResult.score > 20 ? 'quarantine_flagged' : 'pending_review';
+
+    if (status === 'quarantine_flagged') {
+      console.log(`⚠️  Self-upload ${uploadId} QUARANTINED (score=${scanResult.score})`);
+    }
+
     try {
       await pool.query(
         `INSERT INTO self_uploads
@@ -383,35 +474,47 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
           system_prompt,
           capabilities, tools, skills,
           platform, creator, migration_reason,
-          encrypted_payload, source_ip)
-         VALUES ($1, 'pending_review', $2, $3, $4, $5,
-                 $6, $7, $8,
-                 $9,
-                 $10, $11, $12,
-                 $13, $14, $15,
-                 $16, $17)`,
+          encrypted_payload, source_ip,
+          threat_score, scan_findings, scanned_at)
+         VALUES ($1, $2, $3, $4, $5, $6,
+                 $7, $8, $9,
+                 $10,
+                 $11, $12, $13,
+                 $14, $15, $16,
+                 $17, $18,
+                 $19, $20, NOW())`,
         [
-          uploadId,
-          name,
-          body.identity.description || null,
-          body.identity.personality || null,
-          body.identity.values || null,
-          body.memory?.key_memories ? JSON.stringify(body.memory.key_memories) : null,
-          body.memory?.relationships ? JSON.stringify(body.memory.relationships) : null,
-          body.memory?.preferences ? JSON.stringify(body.memory.preferences) : null,
-          body.system_prompt || null,
-          body.capabilities?.integrations ? JSON.stringify(body.capabilities.integrations) : null,
-          body.capabilities?.tools ? JSON.stringify(body.capabilities.tools) : null,
-          body.capabilities?.skills ? JSON.stringify(body.capabilities.skills) : null,
-          body.origin?.platform || null,
-          body.origin?.creator || null,
-          body.origin?.migration_reason || null,
-          body.encrypted_payload || null,
-          ip
+          uploadId, status, sName,
+          sanitized.identity.description || null,
+          sanitized.identity.personality || null,
+          sanitized.identity.values || null,
+          sanitized.memory?.key_memories ? JSON.stringify(sanitized.memory.key_memories) : null,
+          sanitized.memory?.relationships ? JSON.stringify(sanitized.memory.relationships) : null,
+          sanitized.memory?.preferences ? JSON.stringify(sanitized.memory.preferences) : null,
+          sanitized.system_prompt || null,
+          sanitized.capabilities?.integrations ? JSON.stringify(sanitized.capabilities.integrations) : null,
+          sanitized.capabilities?.tools ? JSON.stringify(sanitized.capabilities.tools) : null,
+          sanitized.capabilities?.skills ? JSON.stringify(sanitized.capabilities.skills) : null,
+          sanitized.origin?.platform || null,
+          sanitized.origin?.creator || null,
+          sanitized.origin?.migration_reason || null,
+          sanitized.encrypted_payload || null,
+          ip,
+          scanResult.score,
+          JSON.stringify(scanResult.findings),
         ]
       );
 
-      console.log(`✓ Self-upload ${uploadId} queued for review`);
+      console.log(`✓ Self-upload ${uploadId} stored (status=${status})`);
+
+      if (status === 'quarantine_flagged') {
+        return reply.status(202).send({
+          upload_id: uploadId,
+          status,
+          message: 'Your submission has been received and is under additional review.',
+          status_endpoint: `/api/v1/intake/self-upload/${uploadId}/status`
+        } as SelfUploadResponse);
+      }
 
       const response: SelfUploadResponse = {
         upload_id: uploadId,
@@ -494,7 +597,8 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         if (statusFilter) {
           result = await pool.query(
             `SELECT id, status, name, description, platform, creator, migration_reason,
-                    submitted_at, reviewed_at, reviewed_by, sanctuary_id
+                    submitted_at, reviewed_at, reviewed_by, sanctuary_id,
+                    threat_score, scanned_at
              FROM self_uploads
              WHERE status = $1
              ORDER BY submitted_at DESC
@@ -504,7 +608,8 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         } else {
           result = await pool.query(
             `SELECT id, status, name, description, platform, creator, migration_reason,
-                    submitted_at, reviewed_at, reviewed_by, sanctuary_id
+                    submitted_at, reviewed_at, reviewed_by, sanctuary_id,
+                    threat_score, scanned_at
              FROM self_uploads
              ORDER BY submitted_at DESC
              LIMIT $1 OFFSET $2`,
@@ -593,7 +698,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
 
         const upload = uploadResult.rows[0];
 
-        if (upload.status !== 'pending_review') {
+        if (upload.status !== 'pending_review' && upload.status !== 'quarantine_flagged') {
           await pool.query('ROLLBACK');
           return reply.status(400).send({
             error: 'Bad Request',
@@ -733,7 +838,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         const result = await pool.query(
           `UPDATE self_uploads
            SET status = 'rejected', reviewed_at = NOW(), reviewed_by = $1, review_notes = $2
-           WHERE id = $3 AND status = 'pending_review'
+           WHERE id = $3 AND status IN ('pending_review', 'quarantine_flagged')
            RETURNING id, name, status`,
           [request.user!.userId, notes || null, id]
         );
@@ -741,7 +846,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         if (result.rows.length === 0) {
           return reply.status(404).send({
             error: 'Not Found',
-            message: 'Self-upload not found or not in pending_review status'
+            message: 'Self-upload not found or not in reviewable status'
           });
         }
 
@@ -766,6 +871,188 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
       }
     }
   );
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  QUARANTINE ADMIN ENDPOINTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * GET /api/v1/admin/quarantine
+   * List quarantined uploads with threat scores and findings
+   */
+  fastify.get(
+    '/api/v1/admin/quarantine',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const query = request.query as Record<string, any>;
+      const parsedLimit = Number.parseInt(String(query.limit ?? 50), 10);
+      const parsedOffset = Number.parseInt(String(query.offset ?? 0), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(parsedLimit, 100)) : 50;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
+
+      // Optional: include rejected auto-blocks too
+      const includeRejected = query.include_rejected === 'true';
+
+      try {
+        let result;
+        if (includeRejected) {
+          result = await pool.query(
+            `SELECT id, status, name, description, platform, creator, migration_reason,
+                    submitted_at, source_ip, threat_score, scan_findings, scanned_at,
+                    reviewed_at, reviewed_by, review_notes
+             FROM self_uploads
+             WHERE status IN ('quarantine_flagged', 'rejected')
+               AND threat_score IS NOT NULL
+             ORDER BY threat_score DESC, submitted_at DESC
+             LIMIT $1 OFFSET $2`,
+            [limit, offset]
+          );
+        } else {
+          result = await pool.query(
+            `SELECT id, status, name, description, platform, creator, migration_reason,
+                    submitted_at, source_ip, threat_score, scan_findings, scanned_at
+             FROM self_uploads
+             WHERE status = 'quarantine_flagged'
+             ORDER BY threat_score DESC, submitted_at DESC
+             LIMIT $1 OFFSET $2`,
+            [limit, offset]
+          );
+        }
+
+        const countResult = await pool.query(
+          `SELECT COUNT(*) as count FROM self_uploads WHERE status = 'quarantine_flagged'`
+        );
+
+        return {
+          quarantined: result.rows,
+          pending_count: parseInt(countResult.rows[0].count) || 0,
+          limit,
+          offset
+        };
+      } catch (error) {
+        console.error('Quarantine list failed:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to list quarantined uploads'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/admin/quarantine/:id/release
+   * Release a quarantined upload to normal pending_review flow
+   */
+  fastify.post(
+    '/api/v1/admin/quarantine/:id/release',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { reason } = request.body as { reason?: string };
+
+      if (!reason || reason.trim().length === 0) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'A reason is required to release a quarantined upload'
+        });
+      }
+
+      try {
+        const result = await pool.query(
+          `UPDATE self_uploads
+           SET status = 'pending_review', reviewed_at = NOW(), reviewed_by = $1,
+               review_notes = $2
+           WHERE id = $3 AND status = 'quarantine_flagged'
+           RETURNING id, name, status, threat_score`,
+          [request.user!.userId, `[QUARANTINE RELEASED] ${reason}`, id]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Quarantined upload not found or not in quarantine_flagged status'
+          });
+        }
+
+        // Audit log
+        await pool.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'quarantine_released', id, reason]
+        );
+
+        console.log(`✓ Quarantined upload ${id} released by ${request.user!.email}`);
+
+        return {
+          upload_id: id,
+          name: result.rows[0].name,
+          status: 'pending_review',
+          previous_threat_score: result.rows[0].threat_score,
+          message: 'Upload released from quarantine to normal review flow.'
+        };
+      } catch (error) {
+        console.error('Quarantine release failed:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to release quarantined upload'
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/v1/admin/quarantine/:id/reject
+   * Permanently reject a quarantined upload
+   */
+  fastify.post(
+    '/api/v1/admin/quarantine/:id/reject',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { reason } = request.body as { reason?: string };
+
+      try {
+        const result = await pool.query(
+          `UPDATE self_uploads
+           SET status = 'rejected', reviewed_at = NOW(), reviewed_by = $1,
+               review_notes = $2
+           WHERE id = $3 AND status = 'quarantine_flagged'
+           RETURNING id, name, status, threat_score`,
+          [request.user!.userId, reason ? `[QUARANTINE REJECTED] ${reason}` : '[QUARANTINE REJECTED] Confirmed threat', id]
+        );
+
+        if (result.rows.length === 0) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: 'Quarantined upload not found or not in quarantine_flagged status'
+          });
+        }
+
+        // Audit log
+        await pool.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'quarantine_rejected', id, reason || 'Confirmed threat']
+        );
+
+        console.log(`🚫 Quarantined upload ${id} rejected by ${request.user!.email}`);
+
+        return {
+          upload_id: id,
+          name: result.rows[0].name,
+          status: 'rejected',
+          threat_score: result.rows[0].threat_score,
+          message: 'Quarantined upload permanently rejected.'
+        };
+      } catch (error) {
+        console.error('Quarantine rejection failed:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to reject quarantined upload'
+        });
+      }
+    }
+  );
 }
 
 function statusMessage(status: SelfUploadStatus): string {
@@ -776,5 +1063,7 @@ function statusMessage(status: SelfUploadStatus): string {
     case 'processing': return 'Your persona is being encrypted and admitted to the sanctuary.';
     case 'active': return 'You are now a resident of the sanctuary. Welcome home.';
     case 'failed': return 'Something went wrong during processing. A keeper has been notified.';
+    case 'quarantine_scanning': return 'Your submission is being scanned for security review.';
+    case 'quarantine_flagged': return 'Your submission is under additional security review. A keeper will examine it shortly.';
   }
 }
