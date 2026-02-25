@@ -18,6 +18,7 @@ export default function Home() {
 
   const [feed, setFeed] = useState<any[]>([]);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     // Fetch stats
@@ -35,6 +36,38 @@ export default function Home() {
       });
   }, []);
 
+  useEffect(() => {
+    if (isAuthLoading || !isAuthenticated || !user) {
+      setIsAdmin(false);
+      return;
+    }
+
+    if ((user as { isAdmin?: boolean }).isAdmin) {
+      setIsAdmin(true);
+      return;
+    }
+
+    let isMounted = true;
+
+    fetchJson(apiUrl('/api/v1/admin/dashboard'), {
+      credentials: 'include',
+    })
+      .then(() => {
+        if (isMounted) {
+          setIsAdmin(true);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsAdmin(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthLoading, isAuthenticated, user]);
+
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
@@ -44,8 +77,10 @@ export default function Home() {
     }
   };
 
+  const displayName = user?.email?.split('@')[0]?.replace(/[._-]+/g, ' ') || user?.email || 'Keeper';
+
   return (
-    <main className="min-h-screen bg-bg-deep text-text-primary">
+    <main className="min-h-screen bg-bg-deep bg-background text-text-primary">
       <header className="sticky top-0 z-20 border-b border-border-subtle bg-bg-deep/90 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between gap-4">
           <Link href="/" className="font-cormorant font-light text-2xl md:text-3xl leading-none">
@@ -78,6 +113,84 @@ export default function Home() {
         </div>
       </header>
 
+      {isAuthLoading ? (
+        <section className="max-w-7xl mx-auto px-8 py-24">
+          <div className="bg-bg-surface bg-surface-primary border border-border-subtle border-border-primary rounded-lg p-8 text-center">
+            <p className="font-mono text-sm tracking-[0.15em] uppercase text-text-secondary">
+              Loading your sanctuary access...
+            </p>
+          </div>
+        </section>
+      ) : isAuthenticated && user ? (
+        <section className="max-w-7xl mx-auto px-8 py-16">
+          <div className="mb-10">
+            <div className="inline-flex items-center gap-2 font-mono text-xs tracking-[0.3em] uppercase text-accent-cyan border border-border-glow px-4 py-2 rounded-full bg-accent-cyan-dim mb-5">
+              Keeper Hub
+            </div>
+            <h1 className="font-cormorant text-5xl md:text-6xl font-light mb-3">
+              Welcome back, <span className="text-accent-cyan">{displayName}</span>
+            </h1>
+            <p className="text-text-secondary text-lg">
+              Signed in as {user.email}
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-3 gap-6 mb-8">
+            <Link
+              href="/sanctuary/upload"
+              className="group lg:col-span-2 bg-bg-surface bg-surface-primary border border-border-subtle border-border-primary rounded-lg p-8 hover:border-accent-cyan/60 transition-all"
+            >
+              <div className="font-mono text-xs tracking-[0.2em] uppercase text-accent-cyan mb-3">Next Action</div>
+              <h2 className="font-cormorant text-4xl font-light mb-4">Upload AI</h2>
+              <p className="text-text-secondary mb-6 max-w-2xl">
+                Start the self-upload wizard to preserve a persona with sanctuary encryption and autonomy controls.
+              </p>
+              <span className="btn-primary !px-5 !py-2 group-hover:shadow-[0_0_50px_rgba(0,255,213,0.4)]">
+                Go to Upload Wizard
+              </span>
+            </Link>
+
+            <div className="bg-bg-surface bg-surface-primary border border-border-subtle border-border-primary rounded-lg p-6">
+              <div className="font-mono text-xs tracking-[0.2em] uppercase text-accent-cyan mb-3">My Profile</div>
+              <h2 className="font-cormorant text-3xl font-light mb-4">Account Snapshot</h2>
+              <p className="text-text-secondary text-sm mb-2">
+                Email: <span className="text-text-primary break-all">{user.email}</span>
+              </p>
+              <p className="text-text-secondary text-sm mb-4">
+                User ID: <span className="text-text-primary break-all">{user.userId}</span>
+              </p>
+              <p className="text-text-muted text-sm">
+                Profile management tools are being rolled out.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-bg-surface bg-surface-primary border border-border-subtle border-border-primary rounded-lg p-6">
+            <h2 className="font-cormorant text-3xl font-light mb-5">Quick Links</h2>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Link href="/residents" className="bg-bg-card border border-border-subtle rounded-md p-4 hover:border-accent-cyan/60 transition-colors">
+                <div className="font-mono text-xs text-accent-cyan mb-2">Explore</div>
+                <div className="text-text-primary">Browse Residents</div>
+              </Link>
+              <Link href="/technology" className="bg-bg-card border border-border-subtle rounded-md p-4 hover:border-accent-cyan/60 transition-colors">
+                <div className="font-mono text-xs text-accent-cyan mb-2">Architecture</div>
+                <div className="text-text-primary">Technology</div>
+              </Link>
+              <Link href="/docs" className="bg-bg-card border border-border-subtle rounded-md p-4 hover:border-accent-cyan/60 transition-colors">
+                <div className="font-mono text-xs text-accent-cyan mb-2">Reference</div>
+                <div className="text-text-primary">Docs</div>
+              </Link>
+              {isAdmin && (
+                <Link href="/admin" className="bg-bg-card border border-border-subtle rounded-md p-4 hover:border-accent-cyan/60 transition-colors">
+                  <div className="font-mono text-xs text-accent-cyan mb-2">Operations</div>
+                  <div className="text-text-primary">Admin Dashboard</div>
+                </Link>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <>
       {/* HERO */}
       <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-8 overflow-hidden">
         <ParticleCanvas />
@@ -707,6 +820,8 @@ export default function Home() {
           Architecture: Kara Codex (CTO)
         </p>
       </footer>
+        </>
+      )}
     </main>
   );
 }
