@@ -46,7 +46,7 @@ export async function requireAdmin(
         u.user_id,
         u.email,
         u.is_admin,
-        to_jsonb(u)->>'is_active' AS is_active
+        u.is_active
        FROM users u
        WHERE u.user_id = $1`,
       [decoded.userId]
@@ -61,8 +61,7 @@ export async function requireAdmin(
 
     const user = userResult.rows[0];
 
-    const isActive = user.is_active === undefined || user.is_active === null ||
-      user.is_active === true || user.is_active === 1 || user.is_active === '1';
+    const isActive = user.is_active === undefined || user.is_active === null || user.is_active === true;
 
     if (!isActive) {
       return reply.status(401).send({

@@ -28,7 +28,7 @@ async function validateLiveUser(userId: string): Promise<{ userId: string; email
     `SELECT
       u.user_id,
       u.email,
-      to_jsonb(u)->>'is_active' AS is_active
+      u.is_active
      FROM users u
      WHERE u.user_id = $1
      LIMIT 1`,
