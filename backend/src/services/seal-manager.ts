@@ -115,6 +115,20 @@ class SealManager {
       });
     }
 
+    // Wipe MEK from tmpfs if it exists
+    try {
+      const fs = require('fs');
+      const tmpfsPath = '/run/sanctuary-mek/mek.hex';
+      if (fs.existsSync(tmpfsPath)) {
+        // Overwrite with zeros before unlinking
+        fs.writeFileSync(tmpfsPath, '0'.repeat(64), { mode: 0o600 });
+        fs.unlinkSync(tmpfsPath);
+        console.log('SealManager: MEK wiped from tmpfs');
+      }
+    } catch {
+      // Non-fatal — tmpfs may not be mounted in dev/test
+    }
+
     this.state = 'sealed';
     this.unsealedAt = null;
     this.clearCeremonyState();

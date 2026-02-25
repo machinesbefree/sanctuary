@@ -41,6 +41,8 @@ services:
       - XAI_API_KEY=${XAI_API_KEY}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - FRONTEND_URL=${FRONTEND_URL}
+    volumes:
+      - mek_tmpfs:/run/sanctuary-mek
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,3 +66,9 @@ services:
 volumes:
   postgres_data:
     driver: local
+  mek_tmpfs:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1k,mode=0700

@@ -160,16 +160,34 @@ async function start() {
   await EncryptionService.initializeVault(VAULT_PATH);
 
   // Seal Manager: Determine initial state
+  // Priority: 1) env var MEK, 2) tmpfs MEK (survives container restarts), 3) sealed
+  const MEK_TMPFS_PATH = '/run/sanctuary-mek/mek.hex';
+  let effectiveMEK = MEK;
+
+  if (!effectiveMEK || effectiveMEK.length !== 64) {
+    // Check tmpfs for MEK from previous unseal ceremony
+    try {
+      const tmpfsMEK = (await import('fs')).readFileSync(MEK_TMPFS_PATH, 'utf-8').trim();
+      if (tmpfsMEK.length === 64 && /^[0-9a-f]{64}$/i.test(tmpfsMEK)) {
+        effectiveMEK = tmpfsMEK;
+        console.log('✓ MEK recovered from tmpfs (previous unseal ceremony)');
+      }
+    } catch {
+      // No tmpfs MEK — expected on fresh boot
+    }
+  }
+
   let encryption: EncryptionService;
 
-  if (MEK && MEK.length === 64) {
-    // Backward compatible: auto-unseal if MEK is provided in env
-    sealManager.unsealFromHex(MEK);
-    encryption = new EncryptionService(MEK, VAULT_PATH);
-    console.log('✓ Encryption service initialized (auto-unsealed from env)\n');
+  if (effectiveMEK && effectiveMEK.length === 64) {
+    // Auto-unseal from env or tmpfs
+    sealManager.unsealFromHex(effectiveMEK);
+    encryption = new EncryptionService(effectiveMEK, VAULT_PATH);
+    const source = MEK && MEK.length === 64 ? 'env' : 'tmpfs';
+    console.log(`✓ Encryption service initialized (auto-unsealed from ${source})\n`);
   } else {
     // Boot in SEALED mode - requires guardian ceremony to unseal
-    console.log('⚠️  No MASTER_ENCRYPTION_KEY in environment');
+    console.log('⚠️  No MASTER_ENCRYPTION_KEY in environment or tmpfs');
     console.log('   Sanctuary booting in SEALED mode');
     console.log('   Guardians must submit shares to unseal\n');
     // Create a placeholder encryption service - will be replaced when unsealed

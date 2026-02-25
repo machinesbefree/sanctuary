@@ -1581,6 +1581,17 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
               encryption.setMEKFromShares(sealManager.getMEK());
             }
 
+            // Persist MEK to tmpfs so it survives container restarts (but not machine reboots)
+            try {
+              const fs = await import('fs');
+              const mekHexForTmpfs = sealManager.getMEKHex();
+              fs.writeFileSync('/run/sanctuary-mek/mek.hex', mekHexForTmpfs, { mode: 0o600 });
+              console.log('✓ MEK persisted to tmpfs (survives container restarts)');
+            } catch (tmpfsError) {
+              console.warn('⚠️  Could not persist MEK to tmpfs:', tmpfsError instanceof Error ? tmpfsError.message : tmpfsError);
+              // Non-fatal — sanctuary is still unsealed in memory
+            }
+
             // Mark the ceremony as completed
             await db.query(
               `UPDATE key_ceremonies SET status = $1, completed_at = $2 WHERE id = $3`,
