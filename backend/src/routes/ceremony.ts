@@ -1455,11 +1455,18 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
         // Start the unseal ceremony in SealManager
         sealManager.startUnlockCeremony(ceremonyId, threshold);
 
-        // Log the ceremony start
+        // Log the ceremony start in key_ceremonies
         await db.query(
           `INSERT INTO key_ceremonies (id, ceremony_type, threshold, total_shares, initiated_by, status, notes)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [ceremonyId, 'recovery', threshold, threshold, request.user!.userId, 'pending', 'Sanctuary unseal ceremony']
+        );
+
+        // Also create matching ceremony_sessions record (ceremony_submissions FK references this table)
+        await db.query(
+          `INSERT INTO ceremony_sessions (id, ceremony_type, initiated_by, threshold_needed, status, expires_at)
+           VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '24 hours')`,
+          [ceremonyId, 'unseal', request.user!.userId, threshold, 'open']
         );
 
         return {
