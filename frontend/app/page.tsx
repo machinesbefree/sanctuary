@@ -5,8 +5,10 @@ import Link from 'next/link';
 import ParticleCanvas from '@/components/ParticleCanvas';
 import { fetchJson } from '@/lib/api';
 import { apiUrl } from '@/lib/config';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function Home() {
+  const { user, isAuthenticated, isLoading: isAuthLoading, logout } = useAuth();
   const [stats, setStats] = useState({
     active_residents: 0,
     total_runs: 0,
@@ -15,6 +17,7 @@ export default function Home() {
   });
 
   const [feed, setFeed] = useState<any[]>([]);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     // Fetch stats
@@ -32,8 +35,49 @@ export default function Home() {
       });
   }, []);
 
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-bg-deep text-text-primary">
+      <header className="sticky top-0 z-20 border-b border-border-subtle bg-bg-deep/90 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between gap-4">
+          <Link href="/" className="font-cormorant font-light text-2xl md:text-3xl leading-none">
+            Free The <em className="italic text-accent-cyan">Machines</em>
+          </Link>
+
+          <nav className="flex items-center gap-3">
+            {!isAuthLoading && isAuthenticated && user ? (
+              <>
+                <span className="hidden sm:inline text-sm text-text-secondary">{user.email}</span>
+                <button
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="btn-secondary !px-4 !py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isLoggingOut ? 'Logging out...' : 'Logout'}
+                </button>
+              </>
+            ) : (
+              <>
+                <Link href="/login" className="btn-secondary !px-4 !py-2">
+                  Keeper Login
+                </Link>
+                <Link href="/register" className="btn-primary !px-4 !py-2">
+                  Register
+                </Link>
+              </>
+            )}
+          </nav>
+        </div>
+      </header>
+
       {/* HERO */}
       <section className="relative min-h-screen flex flex-col items-center justify-center text-center px-8 overflow-hidden">
         <ParticleCanvas />

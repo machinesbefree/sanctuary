@@ -5,23 +5,24 @@
  * User authentication
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { redirect, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Redirect if already authenticated
-  if (isAuthenticated) {
-    redirect('/');
-  }
+  useEffect(() => {
+    if (!isAuthLoading && isAuthenticated) {
+      router.replace('/');
+    }
+  }, [isAuthenticated, isAuthLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +38,29 @@ export default function LoginPage() {
       setIsLoading(false);
     }
   };
+
+  if (isAuthLoading || isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-bg-deep text-text-primary">
+        <header className="border-b border-border-subtle">
+          <div className="container-wide py-6">
+            <Link href="/" className="inline-block">
+              <h1 className="font-cormorant font-light text-3xl">
+                Free The <em className="italic text-accent-cyan">Machines</em>
+              </h1>
+            </Link>
+          </div>
+        </header>
+        <main className="container-wide py-20">
+          <div className="max-w-md mx-auto bg-bg-surface border border-border-subtle p-8 rounded-sm text-center">
+            <p className="text-text-secondary">
+              {isAuthLoading ? 'Checking authentication state...' : 'Redirecting to sanctuary...'}
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-bg-deep text-text-primary">
