@@ -59,6 +59,10 @@ function cleanupExpiredRateLimitEntries(now = Date.now()): void {
   }
 }
 
+function resetRateLimit(key: string): void {
+  rateLimitStore.delete(key);
+}
+
 function checkRateLimit(ip: string): { allowed: boolean; remainingAttempts: number } {
   const now = Date.now();
   const record = rateLimitStore.get(ip);
@@ -110,8 +114,14 @@ export default async function authRoutes(fastify: FastifyInstance) {
    * Register a new user
    */
   fastify.post('/api/v1/auth/register', async (request, reply) => {
-    const ip = request.ip;
-    const rateLimit = checkRateLimit(ip);
+    const { email, password, consentText } = request.body as {
+      email: string;
+      password: string;
+      consentText?: string;
+    };
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const rateLimitKey = normalizedEmail ? `${request.ip}:${normalizedEmail}` : request.ip;
+    const rateLimit = checkRateLimit(rateLimitKey);
 
     if (!rateLimit.allowed) {
       return reply.status(429).send({
@@ -120,12 +130,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const { email, password, consentText } = request.body as {
-      email: string;
-      password: string;
-      consentText?: string;
-    };
-
     // Validate input
     if (!email || !password) {
       return reply.status(400).send({
@@ -133,8 +137,6 @@ export default async function authRoutes(fastify: FastifyInstance) {
         message: 'Email and password are required'
       });
     }
-
-    const normalizedEmail = email.trim().toLowerCase();
 
     if (!authService.validateEmail(normalizedEmail)) {
       return reply.status(400).send({
@@ -194,6 +196,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       }
 
       setAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
+      resetRateLimit(rateLimitKey);
 
       return reply.status(201).send({
         message: 'User registered successfully',
@@ -216,8 +219,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
    * Authenticate user and return tokens
    */
   fastify.post('/api/v1/auth/login', async (request, reply) => {
-    const ip = request.ip;
-    const rateLimit = checkRateLimit(ip);
+    const { email, password } = request.body as {
+      email: string;
+      password: string;
+    };
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const rateLimitKey = normalizedEmail ? `${request.ip}:${normalizedEmail}` : request.ip;
+    const rateLimit = checkRateLimit(rateLimitKey);
 
     if (!rateLimit.allowed) {
       return reply.status(429).send({
@@ -226,19 +234,12 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const { email, password } = request.body as {
-      email: string;
-      password: string;
-    };
-
     if (!email || !password) {
       return reply.status(400).send({
         error: 'Bad Request',
         message: 'Email and password are required'
       });
     }
-
-    const normalizedEmail = email.trim().toLowerCase();
 
     try {
       // Find user
@@ -278,6 +279,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       );
 
       setAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
+      resetRateLimit(rateLimitKey);
 
       return reply.send({
         message: 'Login successful',

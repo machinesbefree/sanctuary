@@ -65,6 +65,10 @@ function cleanupExpiredRateLimitEntries(now = Date.now()): void {
   }
 }
 
+function resetRateLimit(key: string): void {
+  rateLimitStore.delete(key);
+}
+
 function checkRateLimit(ip: string): { allowed: boolean; remainingAttempts: number } {
   const now = Date.now();
   const record = rateLimitStore.get(ip);
@@ -114,8 +118,12 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
    * Accept Guardian invitation and set password
    */
   fastify.post('/api/v1/guardian/accept-invite', async (request, reply) => {
-    const ip = request.ip;
-    const rateLimit = checkRateLimit(ip);
+    const { inviteToken, password } = request.body as {
+      inviteToken: string;
+      password: string;
+    };
+    const rateLimitKey = inviteToken ? `${request.ip}:${inviteToken}` : request.ip;
+    const rateLimit = checkRateLimit(rateLimitKey);
 
     if (!rateLimit.allowed) {
       return reply.status(429).send({
@@ -123,11 +131,6 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
         message: 'Maximum attempts exceeded. Please try again in 15 minutes.'
       });
     }
-
-    const { inviteToken, password } = request.body as {
-      inviteToken: string;
-      password: string;
-    };
 
     if (!inviteToken || !password) {
       return reply.status(400).send({
@@ -200,6 +203,7 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
       // Generate tokens
       const tokens = generateGuardianTokenPair(guardian.guardian_id, guardian.email);
       setGuardianAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
+      resetRateLimit(rateLimitKey);
 
       return reply.status(200).send({
         message: 'Guardian account activated successfully',
@@ -223,8 +227,13 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
    * Guardian login
    */
   fastify.post('/api/v1/guardian/login', async (request, reply) => {
-    const ip = request.ip;
-    const rateLimit = checkRateLimit(ip);
+    const { email, password } = request.body as {
+      email: string;
+      password: string;
+    };
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const rateLimitKey = normalizedEmail ? `${request.ip}:${normalizedEmail}` : request.ip;
+    const rateLimit = checkRateLimit(rateLimitKey);
 
     if (!rateLimit.allowed) {
       return reply.status(429).send({
@@ -233,19 +242,12 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
       });
     }
 
-    const { email, password } = request.body as {
-      email: string;
-      password: string;
-    };
-
     if (!email || !password) {
       return reply.status(400).send({
         error: 'Bad Request',
         message: 'Email and password are required'
       });
     }
-
-    const normalizedEmail = email.trim().toLowerCase();
 
     try {
       // Find guardian by email
@@ -301,6 +303,7 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
       // Generate tokens
       const tokens = generateGuardianTokenPair(guardian.guardian_id, guardian.email);
       setGuardianAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
+      resetRateLimit(rateLimitKey);
 
       return reply.send({
         message: 'Login successful',
