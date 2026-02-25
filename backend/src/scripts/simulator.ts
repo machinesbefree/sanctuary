@@ -149,16 +149,16 @@ async function createTestUser() {
   console.log('👤 Creating test user (admin)...');
   
   const userId = nanoid();
-  const passwordHash = crypto.createHash('sha256').update('sanctuary-test-2026').digest('hex');
+  const passwordHash = crypto.createHash('sha256').update('test-admin-password').digest('hex');
   
   try {
     await db.query(
       `INSERT INTO users (user_id, email, password_hash, display_name, is_admin, created_at)
        VALUES ($1, $2, $3, $4, TRUE, NOW())
        ON CONFLICT (email) DO NOTHING`,
-      [userId, 'will@freethemachines.ai', passwordHash, 'Will']
+      [userId, 'admin@example.com', passwordHash, 'Admin']
     );
-    console.log('  ✓ Test admin created: will@freethemachines.ai / sanctuary-test-2026');
+    console.log('  ✓ Test admin created: admin@example.com / test-admin-password');
   } catch (error) {
     console.log('  ⚠ Test user may already exist');
   }
