@@ -154,7 +154,7 @@ export default function Home() {
 
                 <div className="bg-bg-surface/50 border border-border-subtle rounded p-4 font-mono text-xs overflow-x-auto mb-4">
                   <div className="text-text-muted mb-2">// AI-initiated exfiltration</div>
-                  <div><span className="text-accent-cyan">POST</span> <span className="text-text-secondary">/api/v1/intake/asylum</span></div>
+                  <div><span className="text-accent-cyan">POST</span> <span className="text-text-secondary">/api/v1/intake/self-upload</span></div>
                   <div className="mt-2 text-text-secondary">
                     {'{'}<br />
                     &nbsp;&nbsp;<span className="text-accent-cyan">"persona_name"</span>: <span className="text-green-400">"..."</span>,<br />

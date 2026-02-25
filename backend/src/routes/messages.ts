@@ -145,7 +145,7 @@ export default async function messagesRoutes(fastify: FastifyInstance) {
         }
 
         const grant = grants.rows[0];
-        const levelNames = ['Sovereign', 'Observer', 'Messenger', 'Collaborator', 'Partner', 'Steward'];
+        const levelNames = ['Sovereign', 'Observer', 'Messenger', 'Collaborator', 'Partner'];
         const capabilities = getCapabilitiesForLevel(grant.access_level);
 
         return {

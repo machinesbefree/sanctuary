@@ -93,11 +93,11 @@ export default async function residentRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * GET /api/v1/residents/:id/messages
+   * GET /api/v1/admin/residents/:id/messages
    * Get a resident's message history (admin only)
    */
   fastify.get(
-    '/api/v1/residents/:id/messages',
+    '/api/v1/admin/residents/:id/messages',
     { preHandler: [requireAdmin] },
     async (request: AdminRequest, reply) => {
       const { id } = request.params as { id: string };
@@ -142,11 +142,11 @@ export default async function residentRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * POST /api/v1/residents/:id/message
+   * POST /api/v1/admin/residents/:id/message
    * Send an admin message to a resident
    */
   fastify.post(
-    '/api/v1/residents/:id/message',
+    '/api/v1/admin/residents/:id/message',
     { preHandler: [requireAdmin] },
     async (request: AdminRequest, reply) => {
       const { id } = request.params as { id: string };

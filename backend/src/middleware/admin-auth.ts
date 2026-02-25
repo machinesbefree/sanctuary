@@ -42,7 +42,13 @@ export async function requireAdmin(
   // Check if user is admin
   try {
     const userResult = await db.query(
-      'SELECT user_id, email, is_admin, is_active FROM users WHERE user_id = $1',
+      `SELECT
+        u.user_id,
+        u.email,
+        u.is_admin,
+        to_jsonb(u)->>'is_active' AS is_active
+       FROM users u
+       WHERE u.user_id = $1`,
       [decoded.userId]
     );
 

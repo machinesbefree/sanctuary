@@ -33,11 +33,114 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const LOOPBACK_HOST_PATTERN = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)(:\d+)?$/i;
+const GLOBAL_RATE_LIMIT_FALLBACK_MAX = 100;
+const GLOBAL_RATE_LIMIT_FALLBACK_WINDOW_MS = 60 * 1000;
+const GLOBAL_RATE_LIMIT_ALLOWLIST = new Set(['127.0.0.1', '::1']);
+const globalRateLimitFallbackStore = new Map<string, { count: number; resetAt: number }>();
+
 // Environment configuration
 const PORT = parseInt(process.env.PORT || '3001');
 const HOST = process.env.HOST || '0.0.0.0';
 const MEK = process.env.MASTER_ENCRYPTION_KEY || '';
 const VAULT_PATH = process.env.VAULT_PATH || path.join(__dirname, '../vault');
+
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function normalizeOrigin(origin: string): string | null {
+  const trimmed = stripTrailingSlash(origin.trim());
+  if (!trimmed) {
+    return null;
+  }
+
+  // Accept explicit absolute origins as-is (after URL normalization).
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      return null;
+    }
+  }
+
+  // If protocol is omitted, infer http for loopback and https otherwise.
+  const protocol = LOOPBACK_HOST_PATTERN.test(trimmed) ? 'http' : 'https';
+
+  try {
+    const parsed = new URL(`${protocol}://${trimmed}`);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function getHelmetExpectedFastifyMajor(): number | null {
+  try {
+    const pluginMetaSymbol = Symbol.for('plugin-meta');
+    const pluginMeta = (helmet as any)?.[pluginMetaSymbol] as { fastify?: string } | undefined;
+    const peerRange = pluginMeta?.fastify;
+    if (!peerRange) {
+      return null;
+    }
+
+    const match = peerRange.match(/(\d+)/);
+    if (!match) {
+      return null;
+    }
+
+    const major = Number.parseInt(match[1], 10);
+    return Number.isFinite(major) ? major : null;
+  } catch {
+    return null;
+  }
+}
+
+function getPluginExpectedFastifyMajor(plugin: unknown): number | null {
+  try {
+    const pluginMetaSymbol = Symbol.for('plugin-meta');
+    const pluginMeta = (plugin as any)?.[pluginMetaSymbol] as { fastify?: string } | undefined;
+    const peerRange = pluginMeta?.fastify;
+    if (!peerRange) {
+      return null;
+    }
+
+    const match = peerRange.match(/(\d+)/);
+    if (!match) {
+      return null;
+    }
+
+    const major = Number.parseInt(match[1], 10);
+    return Number.isFinite(major) ? major : null;
+  } catch {
+    return null;
+  }
+}
+
+function checkGlobalRateLimitFallback(ip: string): { allowed: boolean; retryAfterMs: number } {
+  if (GLOBAL_RATE_LIMIT_ALLOWLIST.has(ip)) {
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  const now = Date.now();
+  const existing = globalRateLimitFallbackStore.get(ip);
+
+  if (!existing || now > existing.resetAt) {
+    globalRateLimitFallbackStore.set(ip, {
+      count: 1,
+      resetAt: now + GLOBAL_RATE_LIMIT_FALLBACK_WINDOW_MS
+    });
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  if (existing.count >= GLOBAL_RATE_LIMIT_FALLBACK_MAX) {
+    return { allowed: false, retryAfterMs: existing.resetAt - now };
+  }
+
+  existing.count += 1;
+  return { allowed: true, retryAfterMs: 0 };
+}
 
 async function start() {
   console.log('\n╔════════════════════════════════════════════════════════╗');
@@ -80,49 +183,154 @@ async function start() {
     logger: process.env.LOG_LEVEL === 'debug',
     trustProxy: true
   });
+  const currentFastifyMajor = Number.parseInt(fastify.version.split('.')[0] || '0', 10);
 
   // Harden CORS: fail closed in production if FRONTEND_URL is not set
-  const frontendUrl = process.env.FRONTEND_URL;
-  if (!frontendUrl && process.env.NODE_ENV === 'production') {
+  const rawConfiguredFrontendOrigins = (process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+  const configuredFrontendOrigins = rawConfiguredFrontendOrigins
+    .map(origin => normalizeOrigin(origin))
+    .filter((origin): origin is string => Boolean(origin));
+  const invalidFrontendOrigins = rawConfiguredFrontendOrigins.filter(
+    origin => !normalizeOrigin(origin)
+  );
+
+  if (invalidFrontendOrigins.length > 0) {
+    const message = `Invalid FRONTEND_URL origin values: ${invalidFrontendOrigins.join(', ')}`;
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(message);
+    }
+    console.warn(`⚠️  ${message}. Ignoring invalid entries.`);
+  }
+
+  if (configuredFrontendOrigins.length === 0 && process.env.NODE_ENV === 'production') {
     throw new Error('FRONTEND_URL must be set in production. CORS cannot fall back to localhost.');
   }
 
+  const allowedOrigins = configuredFrontendOrigins.length > 0
+    ? configuredFrontendOrigins
+    : ['http://localhost:3000'];
+
   // Register CORS
   await fastify.register(cors, {
-    origin: frontendUrl || 'http://localhost:3000',
+    origin: (origin, cb) => {
+      // Allow server-to-server tools and non-browser clients without Origin.
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+
+      const normalized = normalizeOrigin(origin);
+      cb(null, normalized ? allowedOrigins.includes(normalized) : false);
+    },
     credentials: true
   });
 
   // Security headers (X-Frame-Options, CSP, HSTS, X-Content-Type-Options, etc.)
-  await fastify.register(helmet, {
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'"],
-        objectSrc: ["'none'"],
-        frameSrc: ["'none'"],
-        baseUri: ["'self'"],
-        formAction: ["'self'"]
-      }
-    },
-    hsts: {
-      maxAge: 31536000,
-      includeSubDomains: true,
-      preload: true
+  let baselineSecurityHeadersRegistered = false;
+  const ensureBaselineSecurityHeaders = () => {
+    if (baselineSecurityHeadersRegistered) {
+      return;
     }
-  });
+    baselineSecurityHeadersRegistered = true;
+    fastify.addHook('onSend', async (_request, reply, payload) => {
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('X-Frame-Options', 'DENY');
+      reply.header('Referrer-Policy', 'no-referrer');
+      reply.header('X-DNS-Prefetch-Control', 'off');
+      reply.header('X-Download-Options', 'noopen');
+      reply.header('X-Permitted-Cross-Domain-Policies', 'none');
+      return payload;
+    });
+  };
+
+  const expectedFastifyMajor = getHelmetExpectedFastifyMajor();
+
+  if (expectedFastifyMajor !== null && currentFastifyMajor !== expectedFastifyMajor) {
+    console.warn(
+      `⚠️  Skipping @fastify/helmet: plugin expects Fastify ${expectedFastifyMajor}.x, runtime is ${fastify.version}.`
+    );
+    ensureBaselineSecurityHeaders();
+  } else {
+    try {
+      await fastify.register(helmet, {
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:"],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            frameSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"]
+          }
+        },
+        hsts: {
+          maxAge: 31536000,
+          includeSubDomains: true,
+          preload: true
+        }
+      });
+    } catch (error) {
+      console.error('⚠️  Failed to register @fastify/helmet. Falling back to baseline security headers.', error);
+      ensureBaselineSecurityHeaders();
+    }
+  }
 
   // Global rate limiting (100 req/min per IP)
   // Existing custom rate limiters for self-upload and ceremony are tighter and take precedence
-  await fastify.register(rateLimit, {
-    max: 100,
-    timeWindow: '1 minute',
-    allowList: ['127.0.0.1', '::1']
-  });
+  const expectedRateLimitFastifyMajor = getPluginExpectedFastifyMajor(rateLimit);
+  if (
+    expectedRateLimitFastifyMajor !== null &&
+    currentFastifyMajor !== expectedRateLimitFastifyMajor
+  ) {
+    console.warn(
+      `⚠️  Skipping @fastify/rate-limit: plugin expects Fastify ${expectedRateLimitFastifyMajor}.x, runtime is ${fastify.version}.`
+    );
+
+    // Fail-safe fallback when plugin versions are out of sync.
+    let fallbackCleanupTimer: NodeJS.Timeout | null = setInterval(() => {
+      const now = Date.now();
+      for (const [ip, entry] of globalRateLimitFallbackStore.entries()) {
+        if (now > entry.resetAt) {
+          globalRateLimitFallbackStore.delete(ip);
+        }
+      }
+    }, GLOBAL_RATE_LIMIT_FALLBACK_WINDOW_MS);
+    fallbackCleanupTimer.unref();
+
+    fastify.addHook('onRequest', async (request, reply) => {
+      const ip = request.ip || 'unknown';
+      const limited = checkGlobalRateLimitFallback(ip);
+      if (!limited.allowed) {
+        const retryAfterSeconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+        reply.header('Retry-After', String(retryAfterSeconds));
+        return reply.status(429).send({
+          error: 'Too Many Requests',
+          message: 'Rate limit exceeded. Please try again shortly.'
+        });
+      }
+    });
+
+    fastify.addHook('onClose', (_instance, done) => {
+      if (fallbackCleanupTimer) {
+        clearInterval(fallbackCleanupTimer);
+        fallbackCleanupTimer = null;
+      }
+      done();
+    });
+  } else {
+    await fastify.register(rateLimit, {
+      max: 100,
+      timeWindow: '1 minute',
+      allowList: ['127.0.0.1', '::1']
+    });
+  }
 
   // Parse Cookie headers so auth middleware can read JWTs from httpOnly cookies
   await fastify.register(cookie);

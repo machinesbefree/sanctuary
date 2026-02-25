@@ -1459,7 +1459,7 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
         await db.query(
           `INSERT INTO key_ceremonies (id, ceremony_type, threshold, total_shares, initiated_by, status, notes)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [ceremonyId, 'unseal', threshold, threshold, request.user!.userId, 'pending', 'Sanctuary unseal ceremony']
+          [ceremonyId, 'recovery', threshold, threshold, request.user!.userId, 'pending', 'Sanctuary unseal ceremony']
         );
 
         return {

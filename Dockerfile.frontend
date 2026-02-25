@@ -17,7 +17,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
 
 # Set API URL at build time (NEXT_PUBLIC_ vars must be set during build for Next.js)
-ARG NEXT_PUBLIC_API_URL=http://localhost:3001
+ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Build the Next.js application

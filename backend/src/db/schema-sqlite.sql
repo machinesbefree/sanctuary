@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS messages (
   message_id        TEXT PRIMARY KEY,
   to_sanctuary_id   TEXT REFERENCES residents(sanctuary_id) ON DELETE CASCADE,
   from_user_id      TEXT,
-  from_type         TEXT CHECK (from_type IN ('uploader', 'keeper', 'public', 'system', 'system_broadcast', 'tool_request', 'ai_to_keeper')) NOT NULL,
+  from_type         TEXT CHECK (from_type IN ('uploader', 'keeper', 'public', 'system', 'system_broadcast', 'tool_request', 'ai_to_keeper', 'resident', 'admin')) NOT NULL,
   content           TEXT NOT NULL,
   delivered         INTEGER DEFAULT 0,
   created_at        TEXT NOT NULL DEFAULT (datetime('now'))

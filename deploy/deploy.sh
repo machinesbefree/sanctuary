@@ -31,6 +31,16 @@ if [ ! -f .env ]; then
 fi
 echo "[2/5] .env found ✓"
 
+if ! grep -q '^NEXT_PUBLIC_API_URL=' .env; then
+  echo "[WARN] NEXT_PUBLIC_API_URL is not set in .env"
+  echo "       Frontend API calls may default incorrectly in production."
+fi
+
+if ! grep -q '^FRONTEND_URL=' .env; then
+  echo "[WARN] FRONTEND_URL is not set in .env"
+  echo "       Backend CORS may reject browser requests."
+fi
+
 # 3. Build and start containers
 echo "[3/5] Building Docker images..."
 docker compose build

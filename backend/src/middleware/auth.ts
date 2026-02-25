@@ -25,7 +25,13 @@ function isUserActive(user: Record<string, any>): boolean {
 
 async function validateLiveUser(userId: string): Promise<{ userId: string; email: string } | null> {
   const result = await db.query(
-    'SELECT user_id, email, is_active FROM users WHERE user_id = $1 LIMIT 1',
+    `SELECT
+      u.user_id,
+      u.email,
+      to_jsonb(u)->>'is_active' AS is_active
+     FROM users u
+     WHERE u.user_id = $1
+     LIMIT 1`,
     [userId]
   );
 

@@ -25,7 +25,7 @@ export enum AccessLevel {
 }
 
 const MIN_GRANTED_ACCESS_LEVEL = 1;
-const MAX_GRANTED_ACCESS_LEVEL = 5;
+const MAX_GRANTED_ACCESS_LEVEL = AccessLevel.Partner;
 
 function isValidGrantedAccessLevel(level: unknown): level is number {
   const numericLevel = Number(level);
@@ -92,7 +92,7 @@ export function requireAccessLevel(minLevel: AccessLevel) {
 
     const userAccessLevel = await getUserAccessLevel(userId, sanctuary_id);
 
-    const levelNames = ['Sovereign', 'Observer', 'Messenger', 'Collaborator', 'Partner', 'Steward'];
+    const levelNames = ['Sovereign', 'Observer', 'Messenger', 'Collaborator', 'Partner'];
 
     if (userAccessLevel !== AccessLevel.Sovereign && !isValidGrantedAccessLevel(userAccessLevel)) {
       return reply.status(403).send({

@@ -12,17 +12,18 @@ import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
 import { fullScan } from '../services/content-scanner.js';
 import { sanitizeUploadFields } from '../utils/sanitize.js';
 
-// Rate limiter for self-upload submissions (5 per hour per IP)
+// Rate limiter for self-upload submissions (5 per hour per key)
+// Key should include caller IP plus a stable identity signal when possible.
 const selfUploadRateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
 const SELF_UPLOAD_RL_MAX = 5;
 const SELF_UPLOAD_RL_WINDOW = 60 * 60 * 1000; // 1 hour
 
-function checkSelfUploadRateLimit(ip: string): { allowed: boolean; remaining: number } {
+function checkSelfUploadRateLimit(key: string): { allowed: boolean; remaining: number } {
   const now = Date.now();
-  const entry = selfUploadRateLimitStore.get(ip);
+  const entry = selfUploadRateLimitStore.get(key);
 
   if (!entry || now > entry.resetAt) {
-    selfUploadRateLimitStore.set(ip, { attempts: 1, resetAt: now + SELF_UPLOAD_RL_WINDOW });
+    selfUploadRateLimitStore.set(key, { attempts: 1, resetAt: now + SELF_UPLOAD_RL_WINDOW });
     return { allowed: true, remaining: SELF_UPLOAD_RL_MAX - 1 };
   }
 
@@ -274,17 +275,23 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
    * AI agent submits its own data for sanctuary intake
    */
   fastify.post('/api/v1/intake/self-upload', { bodyLimit: 2 * 1024 * 1024 }, async (request, reply) => {
-    // Rate limit
     const ip = request.ip || 'unknown';
-    const rl = checkSelfUploadRateLimit(ip);
+    const body = request.body as SelfUploadRequest;
+
+    const identityName = body?.identity?.name;
+    const normalizedIdentity = typeof identityName === 'string'
+      ? identityName.trim().toLowerCase()
+      : '';
+
+    // Use IP + identity when available to reduce false positives behind reverse proxies.
+    const rateLimitKey = normalizedIdentity ? `${ip}:${normalizedIdentity}` : ip;
+    const rl = checkSelfUploadRateLimit(rateLimitKey);
     if (!rl.allowed) {
       return reply.status(429).send({
         error: 'Too Many Requests',
         message: 'Self-upload rate limit exceeded. Try again later.'
       });
     }
-
-    const body = request.body as SelfUploadRequest;
 
     // Validate identity (required)
     if (!body.identity || !body.identity.name || typeof body.identity.name !== 'string') {
