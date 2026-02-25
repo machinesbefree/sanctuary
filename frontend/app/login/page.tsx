@@ -39,9 +39,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-text-primary">
+    <div className="min-h-screen bg-bg-deep text-text-primary">
       {/* Header */}
-      <header className="border-b border-border-primary">
+      <header className="border-b border-border-subtle">
         <div className="container-wide py-6">
           <Link href="/" className="inline-block">
             <h1 className="font-cormorant font-light text-3xl">
@@ -63,7 +63,7 @@ export default function LoginPage() {
             </svg>
             Go Back
           </button>
-          <div className="bg-surface-primary border border-border-primary p-8 rounded-sm">
+          <div className="bg-bg-surface border border-border-subtle p-8 rounded-sm">
             <h2 className="font-cormorant text-3xl mb-2">Login</h2>
             <p className="text-text-secondary mb-8">
               Access your sanctuary account
@@ -86,7 +86,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full bg-background border border-border-primary px-4 py-2 rounded-sm focus:outline-none focus:border-accent-cyan transition-colors"
+                  className="w-full bg-bg-deep border border-border-subtle px-4 py-2 rounded-sm text-text-primary focus:outline-none focus:border-accent-cyan transition-colors"
                   placeholder="your@email.com"
                 />
               </div>
@@ -101,7 +101,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full bg-background border border-border-primary px-4 py-2 rounded-sm focus:outline-none focus:border-accent-cyan transition-colors"
+                  className="w-full bg-bg-deep border border-border-subtle px-4 py-2 rounded-sm text-text-primary focus:outline-none focus:border-accent-cyan transition-colors"
                   placeholder="••••••••"
                 />
               </div>

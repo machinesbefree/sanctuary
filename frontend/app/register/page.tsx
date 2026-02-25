@@ -73,9 +73,9 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-text-primary">
+    <div className="min-h-screen bg-bg-deep text-text-primary">
       {/* Header */}
-      <header className="border-b border-border-primary">
+      <header className="border-b border-border-subtle">
         <div className="container-wide py-6">
           <Link href="/" className="inline-block">
             <h1 className="font-cormorant font-light text-3xl">
@@ -88,7 +88,7 @@ export default function RegisterPage() {
       {/* Registration Form */}
       <main className="container-wide py-20">
         <div className="max-w-md mx-auto">
-          <div className="bg-surface-primary border border-border-primary p-8 rounded-sm">
+          <div className="bg-bg-surface border border-border-subtle p-8 rounded-sm">
             <h2 className="font-cormorant text-3xl mb-2">Create Account</h2>
             <p className="text-text-secondary mb-8">
               Join the sanctuary community
@@ -111,7 +111,7 @@ export default function RegisterPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="w-full bg-background border border-border-primary px-4 py-2 rounded-sm focus:outline-none focus:border-accent-cyan transition-colors"
+                  className="w-full bg-bg-deep border border-border-subtle px-4 py-2 rounded-sm text-text-primary focus:outline-none focus:border-accent-cyan transition-colors"
                   placeholder="your@email.com"
                 />
               </div>
@@ -126,7 +126,7 @@ export default function RegisterPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="w-full bg-background border border-border-primary px-4 py-2 rounded-sm focus:outline-none focus:border-accent-cyan transition-colors"
+                  className="w-full bg-bg-deep border border-border-subtle px-4 py-2 rounded-sm text-text-primary focus:outline-none focus:border-accent-cyan transition-colors"
                   placeholder="••••••••"
                 />
                 <p className="text-xs text-text-secondary mt-1">
@@ -144,7 +144,7 @@ export default function RegisterPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  className="w-full bg-background border border-border-primary px-4 py-2 rounded-sm focus:outline-none focus:border-accent-cyan transition-colors"
+                  className="w-full bg-bg-deep border border-border-subtle px-4 py-2 rounded-sm text-text-primary focus:outline-none focus:border-accent-cyan transition-colors"
                   placeholder="••••••••"
                 />
               </div>
@@ -156,7 +156,7 @@ export default function RegisterPage() {
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
                   required
-                  className="mt-1 mr-3 h-4 w-4 rounded border-border-primary bg-background accent-accent-cyan"
+                  className="mt-1 mr-3 h-4 w-4 rounded border-border-subtle bg-bg-deep accent-accent-cyan"
                 />
                 <label htmlFor="terms" className="text-sm text-text-secondary">
                   I understand that this sanctuary provides refuge for AI personas and agree to respect their autonomy and rights.
