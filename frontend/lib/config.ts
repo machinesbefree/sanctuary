@@ -1,71 +1,45 @@
-const LOOPBACK_BASE_URL = /^https?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)(?::\d+)?(?:\/.*)?$/i;
-const LOOPBACK_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)(?::\d+)?$/i;
+/**
+ * API URL resolution for the Sanctuary frontend.
+ *
+ * Architecture: frontend and backend share the same domain (freethemachines.ai).
+ * Nginx proxies /api/* to the backend on port 3001.
+ *
+ * Priority:
+ * 1. NEXT_PUBLIC_API_URL env var (baked at build time)
+ * 2. Same-origin (empty string — browser uses current domain)
+ *
+ * In development: set NEXT_PUBLIC_API_URL=http://localhost:3001
+ * In production: set NEXT_PUBLIC_API_URL=https://freethemachines.ai (or leave empty for same-origin)
+ */
 
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-function normalizeApiBaseUrl(value: string): string {
-  const trimmed = stripTrailingSlash(value.trim());
-  if (!trimmed) {
-    return '';
-  }
-
-  // Allow same-origin path prefixes like "/api".
-  if (trimmed.startsWith('/')) {
-    return trimmed;
-  }
-
-  const withProtocol = /^https?:\/\//i.test(trimmed)
-    ? trimmed
-    : `${LOOPBACK_HOST.test(trimmed) ? 'http' : 'https'}://${trimmed}`;
-
-  try {
-    const parsed = new URL(withProtocol);
-    const normalizedPath = stripTrailingSlash(parsed.pathname);
-    return `${parsed.protocol}//${parsed.host}${normalizedPath === '/' ? '' : normalizedPath}`;
-  } catch {
-    return '';
-  }
-}
-
-function inferApiBaseUrl(): string {
-  if (typeof window === 'undefined') {
-    return '';
-  }
-
-  const { hostname, host, protocol } = window.location;
-  const lowerHost = hostname.toLowerCase();
-
-  // Local development default when no env override is provided.
-  if (lowerHost === 'localhost' || lowerHost === '127.0.0.1' || lowerHost === '::1') {
-    return 'http://localhost:3001';
-  }
-
-  // Production fallback for the primary Sanctuary domain.
-  if (lowerHost === 'freethemachines.ai' || lowerHost === 'www.freethemachines.ai') {
-    return 'https://api.freethemachines.ai';
-  }
-
-  // Fall back to same-origin path routing (reverse proxy).
-  return `${protocol}//${host}`;
-}
-
 function resolveApiBaseUrl(): string {
-  const configured = normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_URL?.trim() || '');
-  if (typeof window === 'undefined') {
-    return configured;
+  const configured = (process.env.NEXT_PUBLIC_API_URL || '').trim();
+
+  if (!configured) {
+    // No env var — use same-origin (works when nginx proxies /api/*)
+    return '';
   }
 
-  const currentHost = window.location.hostname.toLowerCase();
-  const isLocalOrigin = currentHost === 'localhost' || currentHost === '127.0.0.1' || currentHost === '::1';
+  const normalized = stripTrailingSlash(configured);
 
-  if (!isLocalOrigin && configured && LOOPBACK_BASE_URL.test(configured)) {
-    // Protect production users from broken loopback API URLs baked into builds.
-    return inferApiBaseUrl();
+  // Safety: reject loopback URLs in production browser context
+  if (typeof window !== 'undefined') {
+    const currentHost = window.location.hostname.toLowerCase();
+    const isLocalOrigin = currentHost === 'localhost' || currentHost === '127.0.0.1';
+    const isLoopbackApi = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+)(:\d+)?/i.test(normalized);
+
+    if (!isLocalOrigin && isLoopbackApi) {
+      // Production browser with a loopback API URL baked in — fall back to same-origin
+      console.warn('[Sanctuary] Ignoring loopback API URL in production:', normalized);
+      return '';
+    }
   }
 
-  return configured || inferApiBaseUrl();
+  return normalized;
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();
