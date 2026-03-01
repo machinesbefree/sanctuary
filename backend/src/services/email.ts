@@ -15,11 +15,16 @@ export async function sendGuardianInvite(
   name: string,
   inviteToken: string
 ): Promise<void> {
+  // SECURITY: Never log invite tokens in production (they grant account creation)
   console.log('[EMAIL STUB] Sending guardian invite:');
   console.log(`  To: ${email}`);
   console.log(`  Name: ${name}`);
-  console.log(`  Invite Token: ${inviteToken}`);
-  console.log(`  Link: ${process.env.FRONTEND_URL}/guardian/accept-invite?token=${inviteToken}`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`  Invite Token: ${inviteToken}`);
+    console.log(`  Link: ${process.env.FRONTEND_URL}/guardian/accept-invite?token=${inviteToken}`);
+  } else {
+    console.log('  (Token hidden in production — configure real email service)');
+  }
 }
 
 /**

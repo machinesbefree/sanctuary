@@ -5,6 +5,7 @@
 
 import { FastifyInstance } from 'fastify';
 import fs from 'fs/promises';
+import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
@@ -14,6 +15,32 @@ import * as guardians from '../services/guardians.js';
 import { EncryptionService } from '../services/encryption.js';
 import { sealManager } from '../services/seal-manager.js';
 import bcrypt from 'bcrypt';
+
+// Encrypt a share at rest using AES-256-GCM with a random key derived from the salt
+function encryptShareAtRest(share: string, salt: string): string {
+  const key = crypto.pbkdf2Sync(salt, 'share-encryption', 100000, 32, 'sha256');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(share, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  // Format: iv:tag:ciphertext (all hex)
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptShareAtRest(encryptedShare: string, salt: string): string {
+  const key = crypto.pbkdf2Sync(salt, 'share-encryption', 100000, 32, 'sha256');
+  const parts = encryptedShare.split(':');
+  if (parts.length !== 3) {
+    throw new Error('Invalid encrypted share format');
+  }
+  const iv = Buffer.from(parts[0], 'hex');
+  const tag = Buffer.from(parts[1], 'hex');
+  const ciphertext = Buffer.from(parts[2], 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return decrypted.toString('utf8');
+}
 
 // ==============================================
 // Rate limiting for ceremony share submission
@@ -124,7 +151,7 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
         // Split MEK into shares
         const shares = await shamir.splitSecret(mek, threshold, totalShares);
 
-        // Create guardian records
+        // Create guardian records and store shares encrypted for individual collection
         const createdGuardians = [];
         for (let i = 0; i < guardianNames.length; i++) {
           const guardian = await guardians.addGuardian(
@@ -132,9 +159,23 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
             guardianNames[i].email || null,
             i + 1 // share_index starts at 1
           );
+
+          // Store share encrypted in share_distribution for guardian to collect
+          const initShareId = nanoid();
+          const initShareSalt = crypto.randomBytes(32).toString('hex');
+          const initEncShare = encryptShareAtRest(shares[i], initShareSalt);
+          const initExpires = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
+          await db.query(
+            `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
+             VALUES ($1, $2, $3, $4, $5, false, $6)`,
+            [initShareId, guardian.id, ceremonyId, initEncShare, initShareSalt, initExpires]
+          );
+
           createdGuardians.push({
-            ...guardian,
-            share: shares[i] // Include share for this ONE-TIME distribution
+            id: guardian.id,
+            name: guardian.name,
+            email: guardian.email,
+            share_index: guardian.share_index
           });
         }
 
@@ -152,18 +193,20 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           await guardians.updateGuardianStatus(guardian.id, 'active');
         }
 
+        // SECURITY: Shares are never returned in HTTP responses.
+        // Each guardian collects their share individually via GET /guardian/share.
         return {
           ceremonyId,
           guardians: createdGuardians,
           threshold,
           totalShares,
-          message: 'CRITICAL: Shares displayed ONE TIME ONLY. Distribute immediately and refresh page to clear.'
+          message: 'Ceremony complete. Each guardian must collect their share via the Guardian Portal within 72 hours.'
         };
       } catch (error) {
         console.error('Init ceremony error:', error);
         return reply.status(500).send({
           error: 'Internal Server Error',
-          message: error instanceof Error ? error.message : 'Failed to initialize ceremony'
+          message: 'Failed to initialize ceremony'
         });
       }
     }
@@ -820,15 +863,16 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
         // Create guardian record
         const guardian = await guardians.addGuardian(name, email, nextIndex);
 
-        // Generate invite token
+        // Generate invite token — store SHA-256 hash in DB, return plaintext to admin
         const inviteToken = nanoid(32);
+        const inviteTokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex');
         const inviteExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-        // Create guardian_auth record with invite
+        // Create guardian_auth record with invite (password_hash set to locked sentinel)
         await db.query(
           `INSERT INTO guardian_auth (guardian_id, email, password_hash, invite_token, invite_expires)
            VALUES ($1, $2, $3, $4, $5)`,
-          [guardian.id, email, '', inviteToken, inviteExpires]
+          [guardian.id, email, '!LOCKED!', inviteTokenHash, inviteExpires]
         );
 
         return {
@@ -922,15 +966,23 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           });
         }
 
-        const share = result.rows[0];
+        const shareRow = result.rows[0];
+
+        // Decrypt the share at rest for the authenticated guardian
+        let plainShare: string;
+        try {
+          plainShare = decryptShareAtRest(shareRow.encrypted_share, shareRow.share_salt);
+        } catch {
+          // Fallback: if share was stored before encryption was added, return as-is
+          plainShare = shareRow.encrypted_share;
+        }
 
         return {
-          id: share.id,
-          encryptedShare: share.encrypted_share,
-          shareSalt: share.share_salt,
-          ceremonyId: share.ceremony_id,
-          expiresAt: share.expires_at,
-          message: 'Share available. Confirm storage to mark as collected.'
+          id: shareRow.id,
+          share: plainShare,
+          ceremonyId: shareRow.ceremony_id,
+          expiresAt: shareRow.expires_at,
+          message: 'Share available. Store it securely, then confirm collection.'
         };
       } catch (error) {
         console.error('Get guardian share error:', error);
@@ -1164,14 +1216,33 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
               // Clear in-memory shares
               ceremonyShares.delete(id);
 
+              // SECURITY: New shares are stored encrypted in share_distribution
+              // for each guardian to collect individually — never returned in bulk.
+              // Store new shares for individual guardian collection
+              const newGuardiansResult = await db.query(
+                `SELECT g.id, g.name, g.email, g.share_index
+                 FROM guardians g WHERE g.status = 'active' ORDER BY g.share_index ASC`
+              );
+              const newGuardians = newGuardiansResult.rows;
+              for (let i = 0; i < Math.min(newShares.length, newGuardians.length); i++) {
+                const reshareId = nanoid();
+                const reshareShareSalt = crypto.randomBytes(32).toString('hex');
+                const reshareEncShare = encryptShareAtRest(newShares[i], reshareShareSalt);
+                const reshareExpires = new Date(Date.now() + 72 * 60 * 60 * 1000);
+                await db.query(
+                  `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
+                   VALUES ($1, $2, $3, $4, $5, false, $6)`,
+                  [reshareId, newGuardians[i].id, id, reshareEncShare, reshareShareSalt, reshareExpires]
+                );
+              }
+
               return {
                 submissionId,
                 sharesCollected: session.shares_collected,
                 thresholdNeeded: session.threshold_needed,
                 thresholdMet: true,
                 completed: true,
-                newShares,
-                message: 'Threshold met. MEK reconstructed and re-split. CRITICAL: New shares displayed ONE TIME ONLY.'
+                message: 'Threshold met. MEK reconstructed and re-split. New shares available for individual collection via /guardian/share.'
               };
             } else if (session.ceremony_type === 'emergency_decrypt') {
               // Emergency decrypt: reconstruct MEK, decrypt target resident
@@ -1207,14 +1278,15 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
 
               ceremonyShares.delete(id);
 
+              // SECURITY: Decrypted persona is stored for admin retrieval only,
+              // never returned to the submitting guardian.
               return {
                 submissionId,
                 sharesCollected: session.shares_collected,
                 thresholdNeeded: session.threshold_needed,
                 thresholdMet: true,
                 completed: true,
-                persona,
-                message: 'Threshold met. Emergency decrypt completed.'
+                message: 'Threshold met. Emergency decrypt completed. Decrypted data available to admin.'
               };
             } else {
               // Generic ceremony: just mark complete, shares were successfully reconstructed
@@ -1345,18 +1417,19 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
         // Split MEK into shares
         const shares = await shamir.splitSecret(mek, effectiveThreshold, totalShares);
 
-        // Store each share in share_distribution for guardian collection
+        // Store each share in share_distribution, encrypted at rest
         const distributions = [];
         for (let i = 0; i < activeGuardians.length; i++) {
           const guardian = activeGuardians[i];
           const shareId = nanoid();
-          const shareSalt = nanoid(16);
+          const shareSalt = crypto.randomBytes(32).toString('hex');
           const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
+          const encryptedShare = encryptShareAtRest(shares[i], shareSalt);
 
           await db.query(
             `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
              VALUES ($1, $2, $3, $4, $5, false, $6)`,
-            [shareId, guardian.id, ceremonyId, shares[i], shareSalt, expiresAt]
+            [shareId, guardian.id, ceremonyId, encryptedShare, shareSalt, expiresAt]
           );
 
           // Update guardian status to active
@@ -1383,13 +1456,19 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           ['completed', new Date(), ceremonyId]
         );
 
+        // SECURITY: MEK is never returned in HTTP responses. It is set via env var
+        // or recovered via guardian ceremony. The MEK has been written to the
+        // encryption service and is available in memory only.
+        if (encryption) {
+          encryption.setMEKFromShares(mek);
+        }
+
         return {
           ceremonyId,
           threshold: effectiveThreshold,
           totalShares,
-          mekHex, // Admin sees MEK this one time — needed to verify unseal works later
           distributions,
-          message: `Ceremony complete. ${totalShares} shares distributed. Each guardian has 72 hours to collect their share via the portal. MEK shown ONE TIME ONLY — save it securely for verification.`
+          message: `Ceremony complete. ${totalShares} shares distributed. Each guardian has 72 hours to collect their share via the portal. MEK is now active in memory — set MASTER_ENCRYPTION_KEY env var for persistence across restarts.`
         };
       } catch (error) {
         console.error('Distribute ceremony error:', error);

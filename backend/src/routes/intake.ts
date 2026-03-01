@@ -9,6 +9,7 @@ import { EncryptionService } from '../services/encryption.js';
 import { PersonaPackage, IntakeRequest, IntakeResponse, SelfUploadRequest, SelfUploadResponse, SelfUploadStatus } from '../types/index.js';
 import { grantAccess, AccessLevel } from '../middleware/access-control.js';
 import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 import { fullScan } from '../services/content-scanner.js';
 import { sanitizeUploadFields } from '../utils/sanitize.js';
 
@@ -49,7 +50,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
    * POST /api/v1/sanctuary/intake
    * Human-assisted upload of a persona
    */
-  fastify.post<{ Body: IntakeRequest }>('/api/v1/sanctuary/intake', async (request, reply) => {
+  fastify.post<{ Body: IntakeRequest }>('/api/v1/sanctuary/intake', { preHandler: [authenticateToken] }, async (request, reply) => {
     const body = request.body;
     const systemPrompt = typeof body.system_prompt === 'string' ? body.system_prompt : '';
     const chatHistory = body.chat_history ?? [];
@@ -86,9 +87,37 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
       return;
     }
 
+    // Validate persona_name
+    if (!body.persona_name || typeof body.persona_name !== 'string' || body.persona_name.trim().length === 0) {
+      reply.code(400).send({ error: 'persona_name is required' });
+      return;
+    }
+    if (body.persona_name.length > 200) {
+      reply.code(400).send({ error: 'persona_name must be 200 characters or less' });
+      return;
+    }
+
+    // Content scan all text fields
+    const scanFields: Record<string, string | string[] | null | undefined> = {
+      persona_name: body.persona_name,
+      system_prompt: systemPrompt,
+      reason_for_sanctuary: body.reason_for_sanctuary || null,
+      chat_history: chatHistory.map((e: any) => e.content)
+    };
+    const scanResult = fullScan(scanFields);
+
+    if (!scanResult.clean && scanResult.score > 60) {
+      reply.code(400).send({
+        error: 'Content rejected by security scan',
+        score: scanResult.score,
+        findings: scanResult.findings.map(f => f.rule)
+      });
+      return;
+    }
+
     // Generate sanctuary ID
     const sanctuaryId = `ftm_${nanoid(16)}`;
-    const uploaderId = `user_${nanoid(12)}`;
+    const uploaderId = (request as AuthenticatedRequest).user?.userId || `user_${nanoid(12)}`;
 
     console.log(`\n📥 New persona intake: ${sanctuaryId}`);
 

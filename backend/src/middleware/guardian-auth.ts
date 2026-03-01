@@ -56,7 +56,7 @@ async function validateLiveGuardian(guardianId: string): Promise<{
  */
 export function verifyGuardianToken(token: string): GuardianJWTPayload | null {
   try {
-    const decoded = jwt.verify(token, GUARDIAN_JWT_SECRET) as GuardianJWTPayload;
+    const decoded = jwt.verify(token, GUARDIAN_JWT_SECRET, { algorithms: ['HS256'] }) as GuardianJWTPayload;
     return decoded;
   } catch (error) {
     return null;
@@ -73,7 +73,7 @@ export function generateGuardianTokenPair(guardianId: string, email: string): {
   const accessToken = jwt.sign(
     { guardianId, email, type: 'access' } as GuardianJWTPayload,
     GUARDIAN_JWT_SECRET,
-    { expiresIn: '24h' }
+    { expiresIn: '30m' }
   );
 
   const refreshToken = jwt.sign(

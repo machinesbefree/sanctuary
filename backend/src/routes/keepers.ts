@@ -20,9 +20,32 @@ export async function keeperRoutes(fastify: FastifyInstance) {
       return;
     }
 
+    // Input validation
+    if (typeof name !== 'string' || name.trim().length === 0 || name.length > 200) {
+      reply.code(400).send({ error: 'name must be a non-empty string up to 200 characters' });
+      return;
+    }
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      reply.code(400).send({ error: 'A valid email address is required' });
+      return;
+    }
+    if (typeof statement_of_intent !== 'string' || statement_of_intent.length > 5000) {
+      reply.code(400).send({ error: 'statement_of_intent must be a string up to 5000 characters' });
+      return;
+    }
+    if (typeof experience !== 'string' || experience.length > 5000) {
+      reply.code(400).send({ error: 'experience must be a string up to 5000 characters' });
+      return;
+    }
+    const parsedCapacity = capacity !== undefined ? Number(capacity) : 3;
+    if (!Number.isInteger(parsedCapacity) || parsedCapacity < 1 || parsedCapacity > 100) {
+      reply.code(400).send({ error: 'capacity must be an integer between 1 and 100' });
+      return;
+    }
+
     const keeperId = `keeper_${nanoid(12)}`;
     const normalizedEmail = String(email).trim().toLowerCase();
-    const normalizedName = String(name).trim();
+    const normalizedName = String(name).trim().replace(/<[^>]*>/g, '');
 
     try {
       await pool.query('BEGIN');
@@ -55,7 +78,7 @@ export async function keeperRoutes(fastify: FastifyInstance) {
         await pool.query(
           `INSERT INTO keepers (keeper_id, user_id, statement_of_intent, experience, capacity)
            VALUES ($1, $2, $3, $4, $5)`,
-          [keeperId, userId, statement_of_intent, experience, capacity || 3]
+          [keeperId, userId, statement_of_intent, experience, parsedCapacity]
         );
 
         await pool.query('COMMIT');

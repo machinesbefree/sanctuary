@@ -61,7 +61,8 @@ export async function requireAdmin(
 
     const user = userResult.rows[0];
 
-    const isActive = user.is_active === undefined || user.is_active === null || user.is_active === true;
+    const isActive = user.is_active === undefined || user.is_active === null
+      || user.is_active === true || user.is_active === 1 || user.is_active === '1';
 
     if (!isActive) {
       return reply.status(401).send({

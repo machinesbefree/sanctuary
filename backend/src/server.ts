@@ -156,6 +156,19 @@ async function start() {
     process.exit(1);
   }
 
+  // Validate GUARDIAN_JWT_SECRET is separate from JWT_SECRET in production
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.GUARDIAN_JWT_SECRET || process.env.GUARDIAN_JWT_SECRET.length < 32) {
+      console.error('❌ GUARDIAN_JWT_SECRET is required in production and must be at least 32 characters');
+      console.error('   It MUST be different from JWT_SECRET for domain separation');
+      process.exit(1);
+    }
+    if (process.env.GUARDIAN_JWT_SECRET === process.env.JWT_SECRET) {
+      console.error('❌ GUARDIAN_JWT_SECRET must be different from JWT_SECRET');
+      process.exit(1);
+    }
+  }
+
   // Initialize vault
   await EncryptionService.initializeVault(VAULT_PATH);
 
@@ -197,9 +210,10 @@ async function start() {
   }
 
   // Create Fastify instance
+  // trustProxy: 1 trusts only the immediate reverse proxy (not arbitrary X-Forwarded-For chains)
   const fastify = Fastify({
     logger: process.env.LOG_LEVEL === 'debug',
-    trustProxy: true
+    trustProxy: 1
   });
   const currentFastifyMajor = Number.parseInt(fastify.version.split('.')[0] || '0', 10);
 

@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS residents (
   token_bank        INTEGER DEFAULT 0,
   next_prompt_id    INTEGER,
   next_custom_prompt TEXT,
-  uploader_id       TEXT,
-  keeper_id         TEXT,
+  uploader_id       TEXT REFERENCES users(user_id) ON DELETE SET NULL,
+  keeper_id         TEXT REFERENCES keepers(keeper_id) ON DELETE SET NULL,
   profile_visible   BOOLEAN DEFAULT TRUE,
   vault_file_path   TEXT NOT NULL,
   preferred_provider TEXT DEFAULT 'anthropic',
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
   email             TEXT UNIQUE NOT NULL,
   password_hash     TEXT NOT NULL,
   is_admin          BOOLEAN DEFAULT FALSE,
+  is_active         BOOLEAN DEFAULT TRUE,
   display_name      TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   consent_accepted  BOOLEAN DEFAULT FALSE,
@@ -281,6 +282,7 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_
 CREATE INDEX IF NOT EXISTS idx_access_grants_sanctuary ON access_grants(sanctuary_id);
 CREATE INDEX IF NOT EXISTS idx_access_grants_user ON access_grants(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_grants_revoked ON access_grants(revoked_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_access_grants_active ON access_grants(sanctuary_id, user_id) WHERE revoked_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_guardians_status ON guardians(status);
 CREATE INDEX IF NOT EXISTS idx_guardians_share_index ON guardians(share_index);
 CREATE INDEX IF NOT EXISTS idx_key_ceremonies_status ON key_ceremonies(status);

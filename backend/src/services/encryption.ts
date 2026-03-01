@@ -288,9 +288,11 @@ export class EncryptionService {
     // Wipe from memory
     mek.fill(0);
 
-    console.log('⚠️  CRITICAL: Store this MEK securely. It cannot be recovered.');
-    console.log('⚠️  In production, use HSM/KMS instead of storing in environment.');
-    console.log(`MEK (hex): ${mekHex}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('⚠️  CRITICAL: Store this MEK securely. It cannot be recovered.');
+      console.log('⚠️  In production, use HSM/KMS instead of storing in environment.');
+      console.log(`MEK (hex): ${mekHex}`);
+    }
 
     return mekHex;
   }

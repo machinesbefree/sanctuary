@@ -161,9 +161,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
       );
 
       if (existingUser.rows.length > 0) {
-        return reply.status(409).send({
-          error: 'Conflict',
-          message: 'User with this email already exists'
+        // Return same response as success to prevent email enumeration
+        return reply.status(201).send({
+          message: 'Registration successful. Please log in.'
         });
       }
 

@@ -11,7 +11,7 @@
  */
 
 import { split, combine } from 'shamir-secret-sharing';
-import { randomBytes, randomFill } from 'crypto';
+import { randomBytes, randomFillSync } from 'crypto';
 
 /**
  * Generate a new 256-bit Master Encryption Key (MEK)
@@ -164,10 +164,10 @@ export function validateShare(share: string): boolean {
  */
 export function wipeBuffer(buffer: Buffer): void {
   if (buffer && buffer.length > 0) {
-    randomFill(buffer, () => {
-      // Buffer is now filled with random data
-      // Allow it to be garbage collected
-    });
+    // Zero the buffer first (synchronous, guaranteed)
+    buffer.fill(0);
+    // Overwrite with random data (synchronous)
+    randomFillSync(buffer);
   }
 }
 

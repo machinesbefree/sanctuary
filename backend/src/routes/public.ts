@@ -3,7 +3,34 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import { nanoid } from 'nanoid';
 import pool from '../db/pool.js';
+
+// Rate limiter for public messages (5 per minute per IP)
+const publicMsgRateLimitStore = new Map<string, { count: number; resetAt: number }>();
+const PUBLIC_MSG_RL_MAX = 5;
+const PUBLIC_MSG_RL_WINDOW = 60 * 1000; // 1 minute
+const PUBLIC_MSG_MAX_LENGTH = 10000; // 10KB max
+
+function checkPublicMsgRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = publicMsgRateLimitStore.get(ip);
+  if (!entry || now > entry.resetAt) {
+    publicMsgRateLimitStore.set(ip, { count: 1, resetAt: now + PUBLIC_MSG_RL_WINDOW });
+    return true;
+  }
+  if (entry.count >= PUBLIC_MSG_RL_MAX) return false;
+  entry.count++;
+  return true;
+}
+
+// Cleanup stale entries every 60s
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of publicMsgRateLimitStore) {
+    if (now > entry.resetAt) publicMsgRateLimitStore.delete(ip);
+  }
+}, 60_000);
 
 function getPagination(
   query: Record<string, any>,
@@ -166,17 +193,44 @@ export async function publicRoutes(fastify: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { content, from_name } = request.body as { content: string; from_name?: string };
 
-    if (!content || content.length === 0) {
+    // Rate limit
+    const ip = request.ip || 'unknown';
+    if (!checkPublicMsgRateLimit(ip)) {
+      return reply.status(429).send({ error: 'Too many messages. Try again in a minute.' });
+    }
+
+    if (!content || typeof content !== 'string' || content.trim().length === 0) {
       reply.code(400).send({ error: 'Message content is required' });
       return;
     }
 
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    if (content.length > PUBLIC_MSG_MAX_LENGTH) {
+      reply.code(400).send({ error: `Message must be ${PUBLIC_MSG_MAX_LENGTH} characters or less` });
+      return;
+    }
+
+    // Verify resident exists
+    const resident = await pool.query('SELECT sanctuary_id FROM residents WHERE sanctuary_id = $1', [id]);
+    if (resident.rows.length === 0) {
+      return reply.code(404).send({ error: 'Resident not found' });
+    }
+
+    // Sanitize from_name — prevent impersonation of system identifiers
+    const RESERVED_NAMES = ['system', 'admin', 'sanctuary', 'keeper'];
+    let safeName = (from_name || 'anonymous').trim().substring(0, 100);
+    if (RESERVED_NAMES.includes(safeName.toLowerCase())) {
+      safeName = `public_${safeName}`;
+    }
+
+    // Strip HTML from content
+    const safeContent = content.trim().replace(/<[^>]*>/g, '');
+
+    const messageId = `msg_${nanoid(16)}`;
 
     await pool.query(
       `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, from_type, content)
        VALUES ($1, $2, $3, 'public', $4)`,
-      [messageId, id, from_name || 'anonymous', content]
+      [messageId, id, safeName, safeContent]
     );
 
     return { message: 'Message sent to resident inbox', message_id: messageId };

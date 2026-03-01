@@ -9,7 +9,7 @@ import { nanoid } from 'nanoid';
 
 // JWT_SECRET must be set in environment - no fallback for security
 const JWT_SECRET = process.env.JWT_SECRET!;
-const JWT_ACCESS_EXPIRY = '24h';
+const JWT_ACCESS_EXPIRY = '30m';
 const JWT_REFRESH_EXPIRY = '7d';
 const BCRYPT_SALT_ROUNDS = 12;
 
@@ -63,7 +63,7 @@ export class AuthService {
    */
   verifyToken(token: string): JWTPayload | null {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+      const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as JWTPayload;
       return decoded;
     } catch (error) {
       return null;

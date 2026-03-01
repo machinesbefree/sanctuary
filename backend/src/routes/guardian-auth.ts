@@ -4,6 +4,7 @@
  */
 
 import { FastifyInstance, FastifyReply } from 'fastify';
+import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { authService } from '../services/auth.js';
@@ -149,14 +150,17 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
     }
 
     try {
-      // Find guardian by invite token
+      // Hash the invite token for DB lookup (tokens are stored as SHA-256 hashes)
+      const inviteTokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex');
+
+      // Find guardian by invite token hash
       const guardianResult = await db.query(
         `SELECT ga.guardian_id, ga.email, ga.invite_expires, ga.account_status, g.name
          FROM guardian_auth ga
          JOIN guardians g ON ga.guardian_id = g.id
          WHERE ga.invite_token = $1
          LIMIT 1`,
-        [inviteToken]
+        [inviteTokenHash]
       );
 
       if (guardianResult.rows.length === 0) {
