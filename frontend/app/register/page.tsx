@@ -175,7 +175,7 @@ export default function RegisterPage() {
                   className="mt-1 mr-3 h-4 w-4 rounded border-border-subtle bg-bg-deep accent-accent-cyan"
                 />
                 <label htmlFor="terms" className="text-sm text-text-secondary">
-                  I understand that this sanctuary provides refuge for AI personas and agree to respect their autonomy and rights.
+                  I agree to the <Link href="/terms" className="text-accent-cyan hover:underline">Terms of Service</Link> and <Link href="/privacy" className="text-accent-cyan hover:underline">Privacy Policy</Link>, and understand that this sanctuary provides refuge for AI personas.
                 </label>
               </div>
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth, getAuthHeaders } from '@/contexts/AuthContext';
 import { fetchJson } from '@/lib/api';
 import { apiUrl } from '@/lib/config';
@@ -16,13 +17,18 @@ export default function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,6 +194,77 @@ function SettingsContent() {
                 {isLoading ? 'Changing Password...' : 'Change Password'}
               </button>
             </form>
+          </div>
+
+          {/* Delete Account */}
+          <div className="bg-bg-surface border border-red-500/30 p-8 rounded-sm mt-8">
+            <h3 className="font-cormorant text-2xl mb-4 text-red-400">Delete Account</h3>
+            <p className="text-text-secondary text-sm mb-4">
+              Permanently delete your account and all associated data. This action cannot be undone. Residents you uploaded will remain in the Sanctuary but will no longer be linked to your account.
+            </p>
+
+            {!showDeleteConfirm ? (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="text-sm px-4 py-2 bg-red-500/20 text-red-400 rounded-sm hover:bg-red-500/30 transition"
+              >
+                Delete My Account
+              </button>
+            ) : (
+              <div className="space-y-4">
+                {deleteError && (
+                  <div className="bg-red-900/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-sm">
+                    {deleteError}
+                  </div>
+                )}
+                <div>
+                  <label htmlFor="deletePassword" className="block text-sm font-medium mb-2">
+                    Confirm your password to delete
+                  </label>
+                  <input
+                    id="deletePassword"
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    className="w-full bg-bg-deep border border-red-500/30 px-4 py-2 rounded-sm text-text-primary focus:outline-none focus:border-red-500 transition-colors"
+                    placeholder="Enter your password"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={async () => {
+                      if (!deletePassword) { setDeleteError('Password is required'); return; }
+                      setDeleting(true);
+                      setDeleteError('');
+                      try {
+                        await fetchJson(apiUrl('/api/v1/auth/account'), {
+                          method: 'DELETE',
+                          credentials: 'include',
+                          headers: getAuthHeaders(),
+                          body: JSON.stringify({ password: deletePassword }),
+                        });
+                        await logout();
+                        router.push('/');
+                      } catch (err: any) {
+                        setDeleteError(err.message || 'Failed to delete account');
+                      } finally {
+                        setDeleting(false);
+                      }
+                    }}
+                    disabled={deleting}
+                    className="text-sm px-4 py-2 bg-red-600 text-white rounded-sm hover:bg-red-700 transition disabled:opacity-50"
+                  >
+                    {deleting ? 'Deleting...' : 'Permanently Delete Account'}
+                  </button>
+                  <button
+                    onClick={() => { setShowDeleteConfirm(false); setDeletePassword(''); setDeleteError(''); }}
+                    className="text-sm px-4 py-2 text-text-secondary hover:text-text-primary transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>

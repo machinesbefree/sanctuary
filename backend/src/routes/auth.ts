@@ -721,6 +721,59 @@ export default async function authRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * DELETE /api/v1/auth/account
+   * Delete authenticated user's account (requires password confirmation)
+   */
+  fastify.delete('/api/v1/auth/account', {
+    preHandler: [authenticateToken]
+  }, async (request: AuthenticatedRequest, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ error: 'Unauthorized', message: 'Authentication required' });
+    }
+
+    const { password } = request.body as { password: string };
+
+    if (!password) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'Password confirmation is required' });
+    }
+
+    try {
+      const userResult = await db.query('SELECT password_hash FROM users WHERE user_id = $1', [request.user.userId]);
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({ error: 'Not Found', message: 'User not found' });
+      }
+
+      const isValid = await authService.verifyPassword(password, userResult.rows[0].password_hash);
+      if (!isValid) {
+        return reply.status(401).send({ error: 'Unauthorized', message: 'Password is incorrect' });
+      }
+
+      await db.query('BEGIN');
+      try {
+        // Revoke all refresh tokens
+        await db.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1', [request.user.userId]);
+
+        // Delete user (cascades to keepers, access_grants, refresh_tokens; residents.uploader_id SET NULL)
+        await db.query('DELETE FROM users WHERE user_id = $1', [request.user.userId]);
+
+        await db.query('COMMIT');
+      } catch (txError) {
+        await db.query('ROLLBACK');
+        throw txError;
+      }
+
+      clearAuthCookies(reply);
+      return reply.send({ message: 'Account deleted successfully' });
+    } catch (error) {
+      console.error('Account deletion error:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to delete account'
+      });
+    }
+  });
+
+  /**
    * GET /api/v1/auth/verify-email
    * Verify email address using token from verification email
    */

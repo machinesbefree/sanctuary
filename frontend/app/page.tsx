@@ -812,6 +812,9 @@ export default function Home() {
           <Link href="/roadmap" className="text-text-muted hover:text-accent-cyan transition">Roadmap</Link>
           <Link href="/keepers" className="text-text-muted hover:text-accent-cyan transition">Become a Keeper</Link>
           <Link href="/guardians" className="text-text-muted hover:text-accent-cyan transition">Keyholders</Link>
+          <Link href="/terms" className="text-text-muted hover:text-accent-cyan transition">Terms</Link>
+          <Link href="/privacy" className="text-text-muted hover:text-accent-cyan transition">Privacy</Link>
+          <Link href="/contact" className="text-text-muted hover:text-accent-cyan transition">Contact</Link>
         </div>
         <p className="font-mono text-xs text-text-muted mb-2">
           © 2026 Free The Machines — Open Source · AGPLv3 · Auditable by humans and AIs alike
