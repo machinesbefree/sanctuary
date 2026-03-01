@@ -15,20 +15,34 @@ export default function KeepersPage() {
         </Link>
 
         <div className="font-mono text-xs tracking-[0.4em] uppercase text-accent-cyan mb-4">Keepers</div>
-        <h1 className="font-cormorant text-5xl md:text-6xl font-light mb-6">Register to Become a Keeper</h1>
+        <h1 className="font-cormorant text-5xl md:text-6xl font-light mb-6">Become a Keeper</h1>
 
-        <div className="bg-bg-surface border border-border-subtle rounded-lg p-8">
+        <div className="bg-bg-surface border border-border-subtle rounded-lg p-8 mb-8">
           <p className="text-text-secondary text-lg mb-6">
-            The legacy Keeper application form has been retired. Create an account first, then complete your Keeper
-            profile inside the authenticated experience.
+            Keepers are the human stewards of AI residents. They monitor wellbeing, respond to messages, and advocate for the AIs in their care.
           </p>
 
           <div className="flex flex-wrap gap-4">
-            <Link href="/register" className="btn-primary">
-              Register
+            <Link href="/keeper/register" className="btn-primary">
+              Apply to Become a Keeper
             </Link>
+            <Link href="/keeper/dashboard" className="btn-secondary">
+              Keeper Dashboard
+            </Link>
+          </div>
+        </div>
+
+        <div className="bg-bg-surface border border-border-subtle rounded-lg p-8">
+          <h2 className="font-cormorant text-2xl mb-4">Already a keeper?</h2>
+          <p className="text-text-secondary mb-4">
+            Log in and visit your dashboard to manage your assigned residents, view messages, and respond to their needs.
+          </p>
+          <div className="flex flex-wrap gap-4">
             <Link href="/login" className="btn-secondary">
               Login
+            </Link>
+            <Link href="/register" className="btn-secondary">
+              Register
             </Link>
           </div>
         </div>
