@@ -492,6 +492,61 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
   });
 
   /**
+   * POST /api/v1/guardian/change-password
+   * Change password for authenticated guardian
+   */
+  fastify.post('/api/v1/guardian/change-password', {
+    preHandler: authenticateGuardian
+  }, async (request: AuthenticatedGuardianRequest, reply) => {
+    if (!request.guardian) {
+      return reply.status(401).send({ error: 'Unauthorized', message: 'Guardian authentication required' });
+    }
+
+    const { currentPassword, newPassword } = request.body as { currentPassword: string; newPassword: string };
+
+    if (!currentPassword || !newPassword) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Current password and new password are required'
+      });
+    }
+
+    const passwordValidation = authService.validatePasswordStrength(newPassword);
+    if (!passwordValidation.valid) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: passwordValidation.message
+      });
+    }
+
+    try {
+      const guardianResult = await db.query(
+        'SELECT password_hash FROM guardian_auth WHERE guardian_id = $1',
+        [request.guardian.guardianId]
+      );
+      if (guardianResult.rows.length === 0) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Guardian not found' });
+      }
+
+      const isValid = await authService.verifyPassword(currentPassword, guardianResult.rows[0].password_hash);
+      if (!isValid) {
+        return reply.status(401).send({ error: 'Unauthorized', message: 'Current password is incorrect' });
+      }
+
+      const newHash = await authService.hashPassword(newPassword);
+      await db.query('UPDATE guardian_auth SET password_hash = $1 WHERE guardian_id = $2', [newHash, request.guardian.guardianId]);
+
+      return reply.send({ message: 'Password changed successfully' });
+    } catch (error) {
+      console.error('Guardian change password error:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to change password'
+      });
+    }
+  });
+
+  /**
    * POST /api/v1/guardian/logout
    * Guardian logout — revokes server-side refresh tokens
    */

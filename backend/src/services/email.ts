@@ -43,6 +43,25 @@ export async function sendShareReady(
 }
 
 /**
+ * Send a password reset email
+ * @param email User's email address
+ * @param resetToken Plaintext reset token
+ */
+export async function sendPasswordReset(
+  email: string,
+  resetToken: string
+): Promise<void> {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+  console.log('[EMAIL STUB] Sending password reset:');
+  console.log(`  To: ${email}`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`  Reset Link: ${resetUrl}`);
+  } else {
+    console.log('  (Link hidden in production — configure real email service)');
+  }
+}
+
+/**
  * Request ceremony participation from guardian
  * @param email Guardian's email address
  * @param name Guardian's name

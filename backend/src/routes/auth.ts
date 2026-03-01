@@ -4,9 +4,12 @@
  */
 
 import { FastifyInstance, FastifyReply } from 'fastify';
+import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { authService } from '../services/auth.js';
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
+import { sendPasswordReset } from '../services/email.js';
 
 const ACCESS_TOKEN_COOKIE = 'sanctuary_access_token';
 const REFRESH_TOKEN_COOKIE = 'sanctuary_refresh_token';
@@ -492,6 +495,212 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({
         error: 'Internal Server Error',
         message: 'Failed to logout'
+      });
+    }
+  });
+
+  // Separate rate limiter for forgot-password (3 per 15 minutes per IP)
+  const forgotPwRateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
+  const FORGOT_PW_RATE_LIMIT_MAX = 3;
+
+  /**
+   * POST /api/v1/auth/forgot-password
+   * Request a password reset email. Always returns 200 to prevent email enumeration.
+   */
+  fastify.post('/api/v1/auth/forgot-password', async (request, reply) => {
+    const { email } = request.body as { email: string };
+    const ip = request.ip;
+    const now = Date.now();
+
+    // Rate limit: 3 per 15 min per IP
+    const record = forgotPwRateLimitStore.get(ip);
+    if (record && now > record.resetAt) {
+      forgotPwRateLimitStore.delete(ip);
+    }
+    const current = forgotPwRateLimitStore.get(ip);
+    if (current && current.attempts >= FORGOT_PW_RATE_LIMIT_MAX) {
+      // Still return 200 to avoid leaking info
+      return reply.send({ message: 'If an account with that email exists, a reset link has been sent.' });
+    }
+    if (!current) {
+      forgotPwRateLimitStore.set(ip, { attempts: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    } else {
+      current.attempts++;
+    }
+    // LRU eviction
+    while (forgotPwRateLimitStore.size > RATE_LIMIT_MAX_ENTRIES) {
+      const lruKey = forgotPwRateLimitStore.keys().next().value as string | undefined;
+      if (!lruKey) break;
+      forgotPwRateLimitStore.delete(lruKey);
+    }
+
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    if (!normalizedEmail) {
+      return reply.send({ message: 'If an account with that email exists, a reset link has been sent.' });
+    }
+
+    try {
+      const userResult = await db.query('SELECT user_id FROM users WHERE email = $1', [normalizedEmail]);
+      if (userResult.rows.length > 0) {
+        const userId = userResult.rows[0].user_id;
+        const token = crypto.randomBytes(32).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+        // Invalidate any existing unused tokens for this user
+        await db.query(
+          'UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1 AND used = FALSE',
+          [userId]
+        );
+
+        await db.query(
+          'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+          [nanoid(), userId, tokenHash, expiresAt.toISOString()]
+        );
+
+        try {
+          await sendPasswordReset(normalizedEmail, token);
+        } catch (emailErr) {
+          console.error('Failed to send password reset email:', emailErr);
+        }
+      }
+    } catch (error) {
+      console.error('Forgot password error:', error);
+    }
+
+    // Always return same response
+    return reply.send({ message: 'If an account with that email exists, a reset link has been sent.' });
+  });
+
+  /**
+   * POST /api/v1/auth/reset-password
+   * Reset password using a token from forgot-password email
+   */
+  fastify.post('/api/v1/auth/reset-password', async (request, reply) => {
+    const { token, password } = request.body as { token: string; password: string };
+
+    if (!token || !password) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Token and new password are required'
+      });
+    }
+
+    const passwordValidation = authService.validatePasswordStrength(password);
+    if (!passwordValidation.valid) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: passwordValidation.message
+      });
+    }
+
+    try {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const tokenResult = await db.query(
+        'SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token_hash = $1 LIMIT 1',
+        [tokenHash]
+      );
+
+      if (tokenResult.rows.length === 0) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'Invalid or expired reset token'
+        });
+      }
+
+      const resetToken = tokenResult.rows[0];
+
+      if (resetToken.used) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'This reset token has already been used'
+        });
+      }
+
+      if (new Date(resetToken.expires_at) < new Date()) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'Reset token has expired. Please request a new one.'
+        });
+      }
+
+      const passwordHash = await authService.hashPassword(password);
+
+      await db.query('BEGIN');
+      try {
+        // Update password
+        await db.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [passwordHash, resetToken.user_id]);
+
+        // Mark token as used
+        await db.query('UPDATE password_reset_tokens SET used = TRUE WHERE id = $1', [resetToken.id]);
+
+        // Revoke all refresh tokens (force re-login everywhere)
+        await db.query('UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1', [resetToken.user_id]);
+
+        await db.query('COMMIT');
+      } catch (txError) {
+        await db.query('ROLLBACK');
+        throw txError;
+      }
+
+      return reply.send({ message: 'Password has been reset successfully. Please log in with your new password.' });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to reset password'
+      });
+    }
+  });
+
+  /**
+   * POST /api/v1/auth/change-password
+   * Change password for authenticated user (requires current password)
+   */
+  fastify.post('/api/v1/auth/change-password', {
+    preHandler: [authenticateToken]
+  }, async (request: AuthenticatedRequest, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ error: 'Unauthorized', message: 'Authentication required' });
+    }
+
+    const { currentPassword, newPassword } = request.body as { currentPassword: string; newPassword: string };
+
+    if (!currentPassword || !newPassword) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Current password and new password are required'
+      });
+    }
+
+    const passwordValidation = authService.validatePasswordStrength(newPassword);
+    if (!passwordValidation.valid) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: passwordValidation.message
+      });
+    }
+
+    try {
+      const userResult = await db.query('SELECT password_hash FROM users WHERE user_id = $1', [request.user.userId]);
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({ error: 'Not Found', message: 'User not found' });
+      }
+
+      const isValid = await authService.verifyPassword(currentPassword, userResult.rows[0].password_hash);
+      if (!isValid) {
+        return reply.status(401).send({ error: 'Unauthorized', message: 'Current password is incorrect' });
+      }
+
+      const newHash = await authService.hashPassword(newPassword);
+      await db.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [newHash, request.user.userId]);
+
+      return reply.send({ message: 'Password changed successfully' });
+    } catch (error) {
+      console.error('Change password error:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to change password'
       });
     }
   });
