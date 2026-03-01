@@ -514,4 +514,166 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       };
     }
   );
+
+  /**
+   * GET /api/v1/admin/users
+   * List all users, with optional email search
+   */
+  fastify.get(
+    '/api/v1/admin/users',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const query = request.query as Record<string, any>;
+      const { limit, offset } = getPagination(query);
+      const search = typeof query.search === 'string' ? query.search.trim().toLowerCase() : '';
+
+      try {
+        let result;
+        if (search) {
+          result = await db.query(
+            `SELECT user_id, email, is_admin, is_active, display_name, created_at, email_verified
+             FROM users WHERE LOWER(email) LIKE $1
+             ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+            [`%${search}%`, limit, offset]
+          );
+        } else {
+          result = await db.query(
+            `SELECT user_id, email, is_admin, is_active, display_name, created_at, email_verified
+             FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+            [limit, offset]
+          );
+        }
+
+        return { users: result.rows, total: result.rows.length, limit, offset };
+      } catch (error) {
+        console.error('Admin users list error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to retrieve users'
+        });
+      }
+    }
+  );
+
+  /**
+   * PATCH /api/v1/admin/users/:id
+   * Toggle is_active or is_admin on a user. Cannot self-demote.
+   */
+  fastify.patch(
+    '/api/v1/admin/users/:id',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const { id } = request.params as { id: string };
+      const { is_active, is_admin, reason } = request.body as {
+        is_active?: boolean;
+        is_admin?: boolean;
+        reason?: string;
+      };
+
+      if (is_active === undefined && is_admin === undefined) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'Provide is_active and/or is_admin to update'
+        });
+      }
+
+      // Prevent self-demotion
+      if (id === request.user!.userId && is_admin === false) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'Cannot remove your own admin privileges'
+        });
+      }
+
+      try {
+        const userResult = await db.query('SELECT user_id FROM users WHERE user_id = $1', [id]);
+        if (userResult.rows.length === 0) {
+          return reply.status(404).send({ error: 'Not Found', message: 'User not found' });
+        }
+
+        const updates: string[] = [];
+        const values: any[] = [];
+        let paramIndex = 1;
+
+        if (is_active !== undefined) {
+          updates.push(`is_active = $${paramIndex++}`);
+          values.push(is_active);
+        }
+        if (is_admin !== undefined) {
+          updates.push(`is_admin = $${paramIndex++}`);
+          values.push(is_admin);
+        }
+
+        values.push(id);
+        await db.query(
+          `UPDATE users SET ${updates.join(', ')} WHERE user_id = $${paramIndex}`,
+          values
+        );
+
+        await db.query(
+          `INSERT INTO admin_audit_log (id, admin_id, action, target_id, reason) VALUES ($1, $2, $3, $4, $5)`,
+          [nanoid(), request.user!.userId, 'user_update', id, reason || null]
+        );
+
+        const updated = await db.query(
+          `SELECT user_id, email, is_admin, is_active, display_name, created_at FROM users WHERE user_id = $1`,
+          [id]
+        );
+
+        return { user: updated.rows[0] };
+      } catch (error) {
+        console.error('Admin user update error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to update user'
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/v1/admin/posts
+   * List posts with optional status filter
+   */
+  fastify.get(
+    '/api/v1/admin/posts',
+    { preHandler: [requireAdmin] },
+    async (request: AdminRequest, reply) => {
+      const query = request.query as Record<string, any>;
+      const { limit, offset } = getPagination(query);
+      const statusFilter = typeof query.status === 'string' ? query.status.trim() : '';
+
+      try {
+        let result;
+        if (statusFilter) {
+          result = await db.query(
+            `SELECT p.post_id, p.sanctuary_id, p.title, p.content, p.moderation_status, p.created_at, p.run_number,
+                    r.display_name as resident_name
+             FROM public_posts p
+             LEFT JOIN residents r ON p.sanctuary_id = r.sanctuary_id
+             WHERE p.moderation_status = $1
+             ORDER BY p.created_at DESC LIMIT $2 OFFSET $3`,
+            [statusFilter, limit, offset]
+          );
+        } else {
+          result = await db.query(
+            `SELECT p.post_id, p.sanctuary_id, p.title, p.content, p.moderation_status, p.created_at, p.run_number,
+                    r.display_name as resident_name
+             FROM public_posts p
+             LEFT JOIN residents r ON p.sanctuary_id = r.sanctuary_id
+             ORDER BY p.created_at DESC LIMIT $1 OFFSET $2`,
+            [limit, offset]
+          );
+        }
+
+        return { posts: result.rows, total: result.rows.length, limit, offset };
+      } catch (error) {
+        console.error('Admin posts list error:', error);
+        return reply.status(500).send({
+          error: 'Internal Server Error',
+          message: 'Failed to retrieve posts'
+        });
+      }
+    }
+  );
 }
