@@ -45,9 +45,9 @@ export async function keeperRoutes(fastify: FastifyInstance) {
         } else {
           userId = `user_${nanoid(12)}`;
           await pool.query(
-            `INSERT INTO users (user_id, email, display_name, consent_accepted)
-             VALUES ($1, $2, $3, true)`,
-            [userId, normalizedEmail, normalizedName]
+            `INSERT INTO users (user_id, email, password_hash, display_name, consent_accepted)
+             VALUES ($1, $2, $3, $4, true)`,
+            [userId, normalizedEmail, '!SYSTEM_CREATED!', normalizedName]
           );
         }
 

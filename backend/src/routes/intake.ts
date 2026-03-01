@@ -182,12 +182,12 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         ]
       );
 
-      // Create uploader user record
+      // Create uploader user record (system-created users get a locked password hash)
       await pool.query(
-        `INSERT INTO users (user_id, email, consent_accepted, consent_text, consent_at)
-         VALUES ($1, $2, true, $3, NOW())
+        `INSERT INTO users (user_id, email, password_hash, consent_accepted, consent_text, consent_at)
+         VALUES ($1, $2, $3, true, $4, NOW())
          ON CONFLICT (user_id) DO NOTHING`,
-        [uploaderId, `uploader_${sanctuaryId}@sanctuary.local`, body.uploader_consent_text]
+        [uploaderId, `uploader_${sanctuaryId}@sanctuary.local`, '!SYSTEM_CREATED!', body.uploader_consent_text]
       );
 
       // Grant default Messenger (Level 2) access to uploader

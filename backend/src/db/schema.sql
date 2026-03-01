@@ -82,9 +82,12 @@ CREATE TABLE IF NOT EXISTS public_posts (
 );
 
 -- Messages (inbox items — stored outside the encrypted vault for delivery)
+-- to_sanctuary_id references a resident when the recipient is a resident.
+-- to_recipient_id stores arbitrary recipient IDs (keeper, admin, user) for non-resident messages.
 CREATE TABLE IF NOT EXISTS messages (
   message_id        TEXT PRIMARY KEY,
   to_sanctuary_id   TEXT REFERENCES residents(sanctuary_id) ON DELETE CASCADE,
+  to_recipient_id   TEXT,
   from_user_id      TEXT,
   from_type         TEXT CHECK (from_type IN ('uploader', 'keeper', 'public', 'system', 'system_broadcast', 'tool_request', 'ai_to_keeper', 'resident', 'admin')) NOT NULL,
   content           TEXT NOT NULL,
@@ -176,7 +179,7 @@ CREATE TABLE IF NOT EXISTS guardian_auth (
 -- Ceremony sessions (time-limited collection windows)
 CREATE TABLE IF NOT EXISTS ceremony_sessions (
   id               TEXT PRIMARY KEY,
-  ceremony_type    TEXT CHECK (ceremony_type IN ('reshare', 'reissue', 'emergency_decrypt', 'rotate_guardians')) NOT NULL,
+  ceremony_type    TEXT CHECK (ceremony_type IN ('reshare', 'reissue', 'emergency_decrypt', 'rotate_guardians', 'unseal')) NOT NULL,
   initiated_by     TEXT NOT NULL,
   target_id        TEXT,                    -- sanctuary_id for emergency_decrypt, NULL otherwise
   threshold_needed INTEGER NOT NULL,

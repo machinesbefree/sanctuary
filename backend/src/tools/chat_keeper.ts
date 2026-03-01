@@ -76,7 +76,7 @@ export const chatKeeper: Tool = {
 
       // Store message (in a real system, this would go to a keeper inbox)
       await db.query(
-        `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, content, from_type)
+        `INSERT INTO messages (message_id, to_recipient_id, from_user_id, content, from_type)
          VALUES ($1, $2, $3, $4, 'ai_to_keeper')`,
         [messageId, keeper_id.trim(), context.sanctuary_id, safeMessage]
       );

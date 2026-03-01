@@ -1,5 +1,5 @@
 # Backend Dockerfile for Node.js application
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -16,9 +16,13 @@ COPY backend/ ./
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 sanctuary && \
+    adduser --system --uid 1001 appuser --ingroup sanctuary
 
 # Copy package files
 COPY backend/package*.json ./
@@ -31,6 +35,9 @@ COPY --from=builder /app/dist ./dist
 
 # Copy SQL schemas (not compiled by tsc)
 COPY backend/src/db/*.sql ./dist/db/
+
+# Switch to non-root user
+USER appuser
 
 # Expose backend port
 EXPOSE 3001

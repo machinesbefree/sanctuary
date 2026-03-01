@@ -93,10 +93,11 @@ export const requestTool: Tool = {
 
       // Store as a special message type for admin review
       await db.query(
-        `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, content, from_type)
-         VALUES ($1, 'admin', $2, $3, 'tool_request')`,
+        `INSERT INTO messages (message_id, to_recipient_id, from_user_id, content, from_type)
+         VALUES ($1, $2, $3, $4, 'tool_request')`,
         [
           requestId,
+          'admin',
           context.sanctuary_id,
           JSON.stringify(requestData)
         ]

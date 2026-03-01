@@ -49,11 +49,22 @@ export const sendMessage: Tool = {
     try {
       const messageId = nanoid();
 
-      await db.query(
-        `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, from_type, content)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [messageId, to, context.sanctuary_id, 'resident', content.trim()]
-      );
+      // Determine if recipient is a resident (sanctuary_id) or a user/keeper
+      const isResident = to.startsWith('ftm_');
+
+      if (isResident) {
+        await db.query(
+          `INSERT INTO messages (message_id, to_sanctuary_id, from_user_id, from_type, content)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [messageId, to, context.sanctuary_id, 'resident', content.trim()]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO messages (message_id, to_recipient_id, from_user_id, from_type, content)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [messageId, to, context.sanctuary_id, 'resident', content.trim()]
+        );
+      }
 
       return {
         success: true,
