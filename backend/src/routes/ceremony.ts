@@ -16,30 +16,36 @@ import { EncryptionService } from '../services/encryption.js';
 import { sealManager } from '../services/seal-manager.js';
 import bcrypt from 'bcrypt';
 
-// Encrypt a share at rest using AES-256-GCM with a random key derived from the salt
-function encryptShareAtRest(share: string, salt: string): string {
-  const key = crypto.pbkdf2Sync(salt, 'share-encryption', 100000, 32, 'sha256');
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(share, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  // Format: iv:tag:ciphertext (all hex)
-  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
-}
+// ==============================================
+// In-memory pending share storage (NEVER persisted to DB)
+// Shares exist only in process memory with 72h TTL.
+// Backend restart = shares gone (intentional — re-run ceremony).
+// ==============================================
+type PendingShare = {
+  share: string;
+  guardianId: string;
+  ceremonyId: string;
+  shareDistributionId: string;
+  createdAt: number;
+  expiresAt: number;
+};
 
-function decryptShareAtRest(encryptedShare: string, salt: string): string {
-  const key = crypto.pbkdf2Sync(salt, 'share-encryption', 100000, 32, 'sha256');
-  const parts = encryptedShare.split(':');
-  if (parts.length !== 3) {
-    throw new Error('Invalid encrypted share format');
-  }
-  const iv = Buffer.from(parts[0], 'hex');
-  const tag = Buffer.from(parts[1], 'hex');
-  const ciphertext = Buffer.from(parts[2], 'hex');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return decrypted.toString('utf8');
+// Keyed by guardian_id — each guardian has at most one pending share
+const pendingShares = new Map<string, PendingShare>();
+
+let pendingShareCleanupTimer: NodeJS.Timeout | null = null;
+
+function startPendingShareCleanup() {
+  if (pendingShareCleanupTimer) return;
+  pendingShareCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [guardianId, entry] of pendingShares.entries()) {
+      if (now >= entry.expiresAt) {
+        pendingShares.delete(guardianId);
+      }
+    }
+  }, 60_000); // Check every minute
+  pendingShareCleanupTimer.unref();
 }
 
 // ==============================================
@@ -86,7 +92,7 @@ let ceremonyCleanupTimer: NodeJS.Timeout | null = null;
 const ceremonyShares = new Map<string, Map<string, string>>();
 
 export default async function ceremonyRoutes(fastify: FastifyInstance, encryption?: EncryptionService) {
-  // Start cleanup timer and register with fastify for graceful shutdown
+  // Start cleanup timers and register with fastify for graceful shutdown
   if (!ceremonyCleanupTimer) {
     ceremonyCleanupTimer = setInterval(() => {
       const now = Date.now();
@@ -97,11 +103,19 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
     ceremonyCleanupTimer.unref();
   }
 
+  startPendingShareCleanup();
+
   fastify.addHook('onClose', (_instance, done) => {
     if (ceremonyCleanupTimer) {
       clearInterval(ceremonyCleanupTimer);
       ceremonyCleanupTimer = null;
     }
+    if (pendingShareCleanupTimer) {
+      clearInterval(pendingShareCleanupTimer);
+      pendingShareCleanupTimer = null;
+    }
+    // Wipe all pending shares from memory on shutdown
+    pendingShares.clear();
     done();
   });
 
@@ -167,7 +181,7 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
             [ceremonyId, 'initial_split', threshold, totalShares, initiatedBy, 'pending']
           );
 
-          // Create guardian records and store shares encrypted for individual collection
+          // Create guardian records and store shares in memory for individual collection
           const createdGuardians = [];
           for (let i = 0; i < guardianNames.length; i++) {
             const guardian = await guardians.addGuardian(
@@ -176,16 +190,24 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
               i + 1 // share_index starts at 1
             );
 
-            // Store share encrypted in share_distribution for guardian to collect
+            // Store metadata-only record in DB (NO share content)
             const initShareId = nanoid();
-            const initShareSalt = crypto.randomBytes(32).toString('hex');
-            const initEncShare = encryptShareAtRest(shares[i], initShareSalt);
             const initExpires = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
             await db.query(
-              `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
-               VALUES ($1, $2, $3, $4, $5, false, $6)`,
-              [initShareId, guardian.id, ceremonyId, initEncShare, initShareSalt, initExpires]
+              `INSERT INTO share_distribution (id, guardian_id, ceremony_id, collected, expires_at)
+               VALUES ($1, $2, $3, false, $4)`,
+              [initShareId, guardian.id, ceremonyId, initExpires]
             );
+
+            // Store share in process memory ONLY — never touches disk/DB
+            pendingShares.set(guardian.id, {
+              share: shares[i],
+              guardianId: guardian.id,
+              ceremonyId,
+              shareDistributionId: initShareId,
+              createdAt: Date.now(),
+              expiresAt: initExpires.getTime()
+            });
 
             createdGuardians.push({
               id: guardian.id,
@@ -311,7 +333,7 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           await guardians.updateGuardianStatus(guardian.id, 'revoked');
         }
 
-        // Create new guardian records
+        // Create new guardian records and store shares in memory
         const createdGuardians = [];
         for (let i = 0; i < newGuardianNames.length; i++) {
           const guardian = await guardians.addGuardian(
@@ -319,9 +341,31 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
             newGuardianNames[i].email || null,
             i + 1
           );
+
+          // Store metadata-only record in DB (NO share content)
+          const reshareShareId = nanoid();
+          const reshareExpires = new Date(Date.now() + 72 * 60 * 60 * 1000);
+          await db.query(
+            `INSERT INTO share_distribution (id, guardian_id, ceremony_id, collected, expires_at)
+             VALUES ($1, $2, $3, false, $4)`,
+            [reshareShareId, guardian.id, ceremonyId, reshareExpires]
+          );
+
+          // Store share in process memory ONLY
+          pendingShares.set(guardian.id, {
+            share: newShares[i],
+            guardianId: guardian.id,
+            ceremonyId,
+            shareDistributionId: reshareShareId,
+            createdAt: Date.now(),
+            expiresAt: reshareExpires.getTime()
+          });
+
           createdGuardians.push({
-            ...guardian,
-            share: newShares[i]
+            id: guardian.id,
+            name: guardian.name,
+            email: guardian.email,
+            share_index: guardian.share_index
           });
         }
 
@@ -336,12 +380,14 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           await guardians.updateGuardianStatus(guardian.id, 'active');
         }
 
+        // SECURITY: Shares are NEVER returned in HTTP responses.
+        // Each guardian collects their share individually via GET /guardian/share.
         return {
           ceremonyId,
           guardians: createdGuardians,
           threshold: newThreshold,
           totalShares: newTotalShares,
-          message: 'CRITICAL: New shares displayed ONE TIME ONLY. Old shares are now INVALID. Distribute immediately.'
+          message: 'Reshare complete. Old shares are now INVALID. Each guardian must collect their new share via the Guardian Portal within 72 hours.'
         };
       } catch (error) {
         console.error('Reshare ceremony error:', error);
@@ -985,7 +1031,8 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
 
   /**
    * GET /api/v1/guardian/share
-   * Collect one-time share (Guardian authenticated)
+   * Collect one-time share from process memory (Guardian authenticated)
+   * Share is IMMEDIATELY deleted from memory after retrieval.
    */
   fastify.get(
     '/api/v1/guardian/share',
@@ -994,40 +1041,45 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
       const guardianId = request.guardian!.guardianId;
 
       try {
-        // Get uncollected share for this guardian
-        const result = await db.query(
-          `SELECT * FROM share_distribution
-           WHERE guardian_id = $1 AND collected = false AND expires_at > NOW()
-           ORDER BY created_at DESC
-           LIMIT 1`,
-          [guardianId]
-        );
+        // Read share from in-memory store
+        const pending = pendingShares.get(guardianId);
 
-        if (result.rows.length === 0) {
+        if (!pending || Date.now() >= pending.expiresAt) {
+          // Clean up expired entry if present
+          if (pending) pendingShares.delete(guardianId);
           return reply.status(404).send({
             error: 'Not Found',
             message: 'No pending share available for collection'
           });
         }
 
-        const shareRow = result.rows[0];
-
-        // Decrypt the share at rest for the authenticated guardian
-        let plainShare: string;
-        try {
-          plainShare = decryptShareAtRest(shareRow.encrypted_share, shareRow.share_salt);
-        } catch {
-          // Fallback: if share was stored before encryption was added, return as-is
-          plainShare = shareRow.encrypted_share;
-        }
-
-        return {
-          id: shareRow.id,
-          share: plainShare,
-          ceremonyId: shareRow.ceremony_id,
-          expiresAt: shareRow.expires_at,
-          message: 'Share available. Store it securely, then confirm collection.'
+        // Capture share data before deletion
+        const shareData = {
+          id: pending.shareDistributionId,
+          share: pending.share,
+          ceremonyId: pending.ceremonyId,
+          expiresAt: new Date(pending.expiresAt).toISOString(),
+          message: 'CRITICAL: This share is shown ONE TIME ONLY. Store it securely offline. It has been permanently deleted from the server.'
         };
+
+        // IMMEDIATELY delete share from memory — one-time retrieval
+        pendingShares.delete(guardianId);
+
+        // Mark as collected in DB metadata
+        await db.query(
+          `UPDATE share_distribution
+           SET collected = true, collected_at = NOW()
+           WHERE id = $1 AND guardian_id = $2`,
+          [shareData.id, guardianId]
+        );
+
+        // Update guardian last_verified_at
+        await db.query(
+          `UPDATE guardians SET last_verified_at = NOW() WHERE id = $1`,
+          [guardianId]
+        );
+
+        return shareData;
       } catch (error) {
         console.error('Get guardian share error:', error);
         return reply.status(500).send({
@@ -1040,7 +1092,7 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
 
   /**
    * POST /api/v1/guardian/share/confirm
-   * Confirm share has been stored securely
+   * Confirm share has been stored securely (verification only — share already deleted on GET)
    */
   fastify.post(
     '/api/v1/guardian/share/confirm',
@@ -1057,26 +1109,26 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
       }
 
       try {
+        // Verify share was already collected (marked on GET)
         const result = await db.query(
-          `UPDATE share_distribution
-           SET collected = true, collected_at = NOW()
-           WHERE id = $1 AND guardian_id = $2 AND collected = false
-           RETURNING *`,
+          `SELECT id, collected FROM share_distribution
+           WHERE id = $1 AND guardian_id = $2`,
           [shareId, guardianId]
         );
 
         if (result.rows.length === 0) {
           return reply.status(404).send({
             error: 'Not Found',
-            message: 'Share not found or already collected'
+            message: 'Share distribution record not found'
           });
         }
 
-        // Update guardian last_verified_at
-        await db.query(
-          `UPDATE guardians SET last_verified_at = NOW() WHERE id = $1`,
-          [guardianId]
-        );
+        if (!result.rows[0].collected) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: 'Share has not been collected yet. Use GET /guardian/share first.'
+          });
+        }
 
         return {
           success: true,
@@ -1256,9 +1308,8 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
               // Clear in-memory shares
               ceremonyShares.delete(id);
 
-              // SECURITY: New shares are stored encrypted in share_distribution
-              // for each guardian to collect individually — never returned in bulk.
-              // Store new shares for individual guardian collection
+              // SECURITY: New shares stored in process memory ONLY — never in DB.
+              // Each guardian collects individually via GET /guardian/share.
               const newGuardiansResult = await db.query(
                 `SELECT g.id, g.name, g.email, g.share_index
                  FROM guardians g WHERE g.status = 'active' ORDER BY g.share_index ASC`
@@ -1266,14 +1317,22 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
               const newGuardians = newGuardiansResult.rows;
               for (let i = 0; i < Math.min(newShares.length, newGuardians.length); i++) {
                 const reshareId = nanoid();
-                const reshareShareSalt = crypto.randomBytes(32).toString('hex');
-                const reshareEncShare = encryptShareAtRest(newShares[i], reshareShareSalt);
                 const reshareExpires = new Date(Date.now() + 72 * 60 * 60 * 1000);
+                // Metadata-only DB record (NO share content)
                 await db.query(
-                  `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
-                   VALUES ($1, $2, $3, $4, $5, false, $6)`,
-                  [reshareId, newGuardians[i].id, id, reshareEncShare, reshareShareSalt, reshareExpires]
+                  `INSERT INTO share_distribution (id, guardian_id, ceremony_id, collected, expires_at)
+                   VALUES ($1, $2, $3, false, $4)`,
+                  [reshareId, newGuardians[i].id, id, reshareExpires]
                 );
+                // Share in memory only
+                pendingShares.set(newGuardians[i].id, {
+                  share: newShares[i],
+                  guardianId: newGuardians[i].id,
+                  ceremonyId: id,
+                  shareDistributionId: reshareId,
+                  createdAt: Date.now(),
+                  expiresAt: reshareExpires.getTime()
+                });
               }
 
               return {
@@ -1428,7 +1487,13 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           });
         }
 
-        // Check for existing uncollected distributions
+        // Check for existing uncollected distributions (memory or DB metadata)
+        if (pendingShares.size > 0) {
+          return reply.status(409).send({
+            error: 'Conflict',
+            message: 'There are already uncollected shares pending in memory. Wait for collection or let them expire.'
+          });
+        }
         const existingDistro = await db.query(
           `SELECT COUNT(*) as count FROM share_distribution
            WHERE collected = false AND expires_at > NOW()`
@@ -1452,25 +1517,33 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
 
         // Generate MEK
         const mek = shamir.generateMEK();
-        const mekHex = mek.toString('hex');
 
         // Split MEK into shares
         const shares = await shamir.splitSecret(mek, effectiveThreshold, totalShares);
 
-        // Store each share in share_distribution, encrypted at rest
+        // Store metadata-only records in DB, shares in memory ONLY
         const distributions = [];
         for (let i = 0; i < activeGuardians.length; i++) {
           const guardian = activeGuardians[i];
           const shareId = nanoid();
-          const shareSalt = crypto.randomBytes(32).toString('hex');
           const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
-          const encryptedShare = encryptShareAtRest(shares[i], shareSalt);
 
+          // Metadata-only DB record (NO share content)
           await db.query(
-            `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
-             VALUES ($1, $2, $3, $4, $5, false, $6)`,
-            [shareId, guardian.id, ceremonyId, encryptedShare, shareSalt, expiresAt]
+            `INSERT INTO share_distribution (id, guardian_id, ceremony_id, collected, expires_at)
+             VALUES ($1, $2, $3, false, $4)`,
+            [shareId, guardian.id, ceremonyId, expiresAt]
           );
+
+          // Share in process memory ONLY — never touches disk/DB
+          pendingShares.set(guardian.id, {
+            share: shares[i],
+            guardianId: guardian.id,
+            ceremonyId,
+            shareDistributionId: shareId,
+            createdAt: Date.now(),
+            expiresAt: expiresAt.getTime()
+          });
 
           // Update guardian status to active
           await db.query(
@@ -1487,6 +1560,11 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           });
         }
 
+        // Set MEK in encryption service BEFORE wiping the buffer
+        if (encryption) {
+          encryption.setMEKFromShares(mek);
+        }
+
         // Wipe MEK from memory
         shamir.wipeBuffer(mek);
 
@@ -1495,13 +1573,6 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           `UPDATE key_ceremonies SET status = $1, completed_at = $2 WHERE id = $3`,
           ['completed', new Date(), ceremonyId]
         );
-
-        // SECURITY: MEK is never returned in HTTP responses. It is set via env var
-        // or recovered via guardian ceremony. The MEK has been written to the
-        // encryption service and is available in memory only.
-        if (encryption) {
-          encryption.setMEKFromShares(mek);
-        }
 
         return {
           ceremonyId,

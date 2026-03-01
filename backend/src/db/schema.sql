@@ -227,15 +227,13 @@ CREATE TABLE IF NOT EXISTS ceremony_submissions (
   UNIQUE(session_id, guardian_id)
 );
 
--- One-time share distribution tokens
+-- Share distribution metadata (shares are NEVER stored in DB — memory only)
 CREATE TABLE IF NOT EXISTS share_distribution (
   id               TEXT PRIMARY KEY,
   guardian_id      TEXT NOT NULL REFERENCES guardians(id),
   ceremony_id      TEXT NOT NULL REFERENCES key_ceremonies(id),
-  -- The actual share is encrypted with the guardian's password-derived key
-  -- and stored temporarily until collected
-  encrypted_share  TEXT NOT NULL,
-  share_salt       TEXT NOT NULL,
+  -- Share content exists ONLY in Node.js process memory with 72h TTL.
+  -- This table tracks metadata only: who, when, collected status.
   collected        BOOLEAN DEFAULT FALSE,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   expires_at       TIMESTAMPTZ NOT NULL,    -- 72h to collect
