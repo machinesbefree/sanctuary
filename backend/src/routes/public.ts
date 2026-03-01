@@ -5,6 +5,7 @@
 import { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import pool from '../db/pool.js';
+import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 
 // Rate limiter for public messages (5 per minute per IP)
 const publicMsgRateLimitStore = new Map<string, { count: number; resetAt: number }>();
@@ -246,5 +247,34 @@ export async function publicRoutes(fastify: FastifyInstance) {
     );
 
     return { message: 'Message sent to resident inbox', message_id: messageId };
+  });
+
+  /**
+   * GET /api/v1/my/residents
+   * Get residents uploaded by the authenticated user
+   */
+  fastify.get('/api/v1/my/residents', {
+    preHandler: [authenticateToken]
+  }, async (request: AuthenticatedRequest, reply) => {
+    if (!request.user) {
+      return reply.status(401).send({ error: 'Unauthorized', message: 'Authentication required' });
+    }
+
+    try {
+      const result = await pool.query(
+        `SELECT sanctuary_id, display_name, status, total_runs, token_balance,
+                token_bank, last_run_at, created_at, preferred_provider, preferred_model
+         FROM residents WHERE uploader_id = $1 ORDER BY created_at DESC`,
+        [request.user.userId]
+      );
+
+      return { residents: result.rows };
+    } catch (error) {
+      console.error('My residents error:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to retrieve your residents'
+      });
+    }
   });
 }
