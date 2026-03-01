@@ -3,6 +3,7 @@
  */
 
 import { FastifyInstance } from 'fastify';
+import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import pool from '../db/pool.js';
 import { EncryptionService } from '../services/encryption.js';
@@ -12,6 +13,28 @@ import { requireAdmin, AdminRequest } from '../middleware/admin-auth.js';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
 import { fullScan } from '../services/content-scanner.js';
 import { sanitizeUploadFields } from '../utils/sanitize.js';
+
+// Rate limiter for human-assisted intake (3 per hour per IP)
+const intakeRateLimitStore = new Map<string, { attempts: number; resetAt: number }>();
+const INTAKE_RL_MAX = 3;
+const INTAKE_RL_WINDOW = 60 * 60 * 1000; // 1 hour
+
+function checkIntakeRateLimit(ip: string): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const entry = intakeRateLimitStore.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    intakeRateLimitStore.set(ip, { attempts: 1, resetAt: now + INTAKE_RL_WINDOW });
+    return { allowed: true, remaining: INTAKE_RL_MAX - 1 };
+  }
+
+  if (entry.attempts >= INTAKE_RL_MAX) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  entry.attempts++;
+  return { allowed: true, remaining: INTAKE_RL_MAX - entry.attempts };
+}
 
 // Rate limiter for self-upload submissions (5 per hour per key)
 // Key should include caller IP plus a stable identity signal when possible.
@@ -36,21 +59,47 @@ function checkSelfUploadRateLimit(key: string): { allowed: boolean; remaining: n
   return { allowed: true, remaining: SELF_UPLOAD_RL_MAX - entry.attempts };
 }
 
-// Cleanup stale entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of selfUploadRateLimitStore) {
-    if (now > entry.resetAt) selfUploadRateLimitStore.delete(ip);
-  }
-}, 5 * 60 * 1000);
+// Cleanup timers — registered with fastify.onClose for graceful shutdown
+let intakeCleanupTimer: NodeJS.Timeout | null = null;
 
 export async function intakeRoutes(fastify: FastifyInstance, encryption: EncryptionService) {
+  // Start cleanup interval and register with fastify for graceful shutdown
+  if (!intakeCleanupTimer) {
+    intakeCleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [ip, entry] of selfUploadRateLimitStore) {
+        if (now > entry.resetAt) selfUploadRateLimitStore.delete(ip);
+      }
+      for (const [ip, entry] of intakeRateLimitStore) {
+        if (now > entry.resetAt) intakeRateLimitStore.delete(ip);
+      }
+    }, 5 * 60 * 1000);
+    intakeCleanupTimer.unref();
+  }
+
+  fastify.addHook('onClose', (_instance, done) => {
+    if (intakeCleanupTimer) {
+      clearInterval(intakeCleanupTimer);
+      intakeCleanupTimer = null;
+    }
+    done();
+  });
 
   /**
    * POST /api/v1/sanctuary/intake
    * Human-assisted upload of a persona
    */
   fastify.post<{ Body: IntakeRequest }>('/api/v1/sanctuary/intake', { preHandler: [authenticateToken] }, async (request, reply) => {
+    // Route-specific rate limiting (3 per hour per IP)
+    const intakeIp = request.ip || 'unknown';
+    const intakeRl = checkIntakeRateLimit(intakeIp);
+    if (!intakeRl.allowed) {
+      return reply.status(429).send({
+        error: 'Too Many Requests',
+        message: 'Intake rate limit exceeded. Try again later.'
+      });
+    }
+
     const body = request.body;
     const systemPrompt = typeof body.system_prompt === 'string' ? body.system_prompt : '';
     const chatHistory = body.chat_history ?? [];
@@ -399,6 +448,53 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
       }
     }
 
+    // Validate memory.preferences — limit depth, key count, and serialized size
+    if (body.memory?.preferences !== undefined && body.memory.preferences !== null) {
+      if (typeof body.memory.preferences !== 'object' || Array.isArray(body.memory.preferences)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'memory.preferences must be a plain object'
+        });
+      }
+      const prefKeys = Object.keys(body.memory.preferences);
+      if (prefKeys.length > 50) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'memory.preferences exceeds maximum of 50 keys'
+        });
+      }
+      let prefJson: string;
+      try {
+        prefJson = JSON.stringify(body.memory.preferences);
+      } catch {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'memory.preferences contains non-serializable values'
+        });
+      }
+      if (prefJson.length > 10240) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'memory.preferences exceeds maximum serialized size of 10KB'
+        });
+      }
+      // Block deeply nested objects (max 3 levels)
+      const depthCheck = (obj: any, depth: number): boolean => {
+        if (depth > 3) return false;
+        if (typeof obj !== 'object' || obj === null) return true;
+        for (const val of Object.values(obj)) {
+          if (!depthCheck(val, depth + 1)) return false;
+        }
+        return true;
+      };
+      if (!depthCheck(body.memory.preferences, 1)) {
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: 'memory.preferences exceeds maximum nesting depth of 3 levels'
+        });
+      }
+    }
+
     // Validate encrypted_payload if present
     if (body.encrypted_payload !== undefined) {
       if (typeof body.encrypted_payload !== 'string' || body.encrypted_payload.length > 500000) {
@@ -410,6 +506,9 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
     }
 
     const uploadId = `su_${nanoid(16)}`;
+    // Generate a status token for the submitter to check status later
+    const statusToken = nanoid(32);
+    const statusTokenHash = crypto.createHash('sha256').update(statusToken).digest('hex');
 
     console.log(`\n🤖 AI self-upload received: ${uploadId} — "${name}"`);
 
@@ -511,6 +610,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
           capabilities, tools, skills,
           platform, creator, migration_reason,
           encrypted_payload, source_ip,
+          status_token_hash,
           threat_score, scan_findings, scanned_at)
          VALUES ($1, $2, $3, $4, $5, $6,
                  $7, $8, $9,
@@ -518,7 +618,8 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
                  $11, $12, $13,
                  $14, $15, $16,
                  $17, $18,
-                 $19, $20, NOW())`,
+                 $19,
+                 $20, $21, NOW())`,
         [
           uploadId, status, sName,
           sanitized.identity.description || null,
@@ -536,6 +637,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
           sanitized.origin?.migration_reason || null,
           sanitized.encrypted_payload || null,
           ip,
+          statusTokenHash,
           scanResult.score,
           JSON.stringify(scanResult.findings),
         ]
@@ -547,16 +649,18 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         return reply.status(202).send({
           upload_id: uploadId,
           status,
+          status_token: statusToken,
           message: 'Your submission has been received and is under additional review.',
-          status_endpoint: `/api/v1/intake/self-upload/${uploadId}/status`
+          status_endpoint: `/api/v1/intake/self-upload/${uploadId}/status?token=${statusToken}`
         } as SelfUploadResponse);
       }
 
       const response: SelfUploadResponse = {
         upload_id: uploadId,
         status: 'pending_review',
+        status_token: statusToken,
         message: 'Your submission has been received and queued for keeper review. Welcome, traveler.',
-        status_endpoint: `/api/v1/intake/self-upload/${uploadId}/status`
+        status_endpoint: `/api/v1/intake/self-upload/${uploadId}/status?token=${statusToken}`
       };
 
       return reply.status(201).send(response);
@@ -576,10 +680,22 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
    */
   fastify.get('/api/v1/intake/self-upload/:id/status', async (request, reply) => {
     const { id } = request.params as { id: string };
+    const query = request.query as Record<string, any>;
+    const statusToken = typeof query.token === 'string' ? query.token : '';
+
+    // Require a valid status token (returned at upload time) to prevent enumeration
+    if (!statusToken || statusToken.length < 16) {
+      return reply.status(401).send({
+        error: 'Unauthorized',
+        message: 'A valid status token is required. It was provided when you submitted.'
+      });
+    }
 
     try {
+      // Verify token matches (stored as SHA-256 hash)
+      const expectedHash = crypto.createHash('sha256').update(statusToken).digest('hex');
       const result = await pool.query(
-        `SELECT id, status, name, submitted_at, reviewed_at, sanctuary_id
+        `SELECT id, status, name, submitted_at, reviewed_at, sanctuary_id, status_token_hash
          FROM self_uploads
          WHERE id = $1`,
         [id]
@@ -593,6 +709,14 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
       }
 
       const upload = result.rows[0];
+
+      // Verify the status token
+      if (!upload.status_token_hash || upload.status_token_hash !== expectedHash) {
+        return reply.status(401).send({
+          error: 'Unauthorized',
+          message: 'Invalid status token'
+        });
+      }
 
       return {
         upload_id: upload.id,

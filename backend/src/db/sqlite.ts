@@ -20,7 +20,15 @@ const tables: Record<string, any[]> = {
   ],
   backup_nodes: [],
   refresh_tokens: [],
-  access_grants: []
+  access_grants: [],
+  guardians: [],
+  key_ceremonies: [],
+  guardian_auth: [],
+  ceremony_sessions: [],
+  ceremony_submissions: [],
+  share_distribution: [],
+  self_uploads: [],
+  admin_audit_log: []
 };
 
 // PostgreSQL-compatible query interface

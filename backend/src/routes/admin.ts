@@ -271,6 +271,16 @@ export default async function adminRoutes(fastify: FastifyInstance) {
       }
 
       try {
+        // Ensure value is valid JSON for the JSONB column
+        let jsonValue: string;
+        try {
+          JSON.parse(value);
+          jsonValue = value;
+        } catch {
+          // Wrap plain strings/numbers as JSON
+          jsonValue = JSON.stringify(value);
+        }
+
         // Update or insert setting
         const checkResult = await db.query(
           'SELECT key FROM system_settings WHERE key = $1',
@@ -279,13 +289,13 @@ export default async function adminRoutes(fastify: FastifyInstance) {
 
         if (checkResult.rows.length > 0) {
           await db.query(
-            'UPDATE system_settings SET value = $1, updated_at = $2 WHERE key = $3',
-            [value, new Date().toISOString(), key]
+            'UPDATE system_settings SET value = $1::jsonb, updated_at = $2 WHERE key = $3',
+            [jsonValue, new Date().toISOString(), key]
           );
         } else {
           await db.query(
-            'INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, $3)',
-            [key, value, new Date().toISOString()]
+            'INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2::jsonb, $3)',
+            [key, jsonValue, new Date().toISOString()]
           );
         }
 

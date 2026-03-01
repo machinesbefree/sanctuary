@@ -188,21 +188,28 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Hash password and activate account
+      // Hash password and activate account (in a transaction for consistency)
       const passwordHash = await authService.hashPassword(password);
 
-      await db.query(
-        `UPDATE guardian_auth
-         SET password_hash = $1, account_status = 'active', invite_token = NULL, invite_expires = NULL
-         WHERE guardian_id = $2`,
-        [passwordHash, guardian.guardian_id]
-      );
+      await db.query('BEGIN');
+      try {
+        await db.query(
+          `UPDATE guardian_auth
+           SET password_hash = $1, account_status = 'active', invite_token = NULL, invite_expires = NULL
+           WHERE guardian_id = $2`,
+          [passwordHash, guardian.guardian_id]
+        );
 
-      // Update Guardian status to active
-      await db.query(
-        `UPDATE guardians SET status = 'active' WHERE id = $1`,
-        [guardian.guardian_id]
-      );
+        // Update Guardian status to active
+        await db.query(
+          `UPDATE guardians SET status = 'active' WHERE id = $1`,
+          [guardian.guardian_id]
+        );
+        await db.query('COMMIT');
+      } catch (txError) {
+        await db.query('ROLLBACK');
+        throw txError;
+      }
 
       // Generate tokens
       const tokens = generateGuardianTokenPair(guardian.guardian_id, guardian.email);

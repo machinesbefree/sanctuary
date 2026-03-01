@@ -79,19 +79,32 @@ function checkCeremonyRateLimit(ip: string): { allowed: boolean; retryAfterMs: n
   return { allowed: true, retryAfterMs: 0 };
 }
 
-// Cleanup expired entries every 60s
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of ceremonyRateLimitStore.entries()) {
-    if (now > entry.resetAt) ceremonyRateLimitStore.delete(ip);
-  }
-}, 60_000);
+let ceremonyCleanupTimer: NodeJS.Timeout | null = null;
 
 // In-memory share storage for active ceremony sessions
 // Maps sessionId -> Map<guardianId, share>
 const ceremonyShares = new Map<string, Map<string, string>>();
 
 export default async function ceremonyRoutes(fastify: FastifyInstance, encryption?: EncryptionService) {
+  // Start cleanup timer and register with fastify for graceful shutdown
+  if (!ceremonyCleanupTimer) {
+    ceremonyCleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [ip, entry] of ceremonyRateLimitStore.entries()) {
+        if (now > entry.resetAt) ceremonyRateLimitStore.delete(ip);
+      }
+    }, 60_000);
+    ceremonyCleanupTimer.unref();
+  }
+
+  fastify.addHook('onClose', (_instance, done) => {
+    if (ceremonyCleanupTimer) {
+      clearInterval(ceremonyCleanupTimer);
+      ceremonyCleanupTimer = null;
+    }
+    done();
+  });
+
   /**
    * POST /api/v1/ceremony/init
    * Initialize the first key split ceremony
@@ -139,69 +152,79 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
         const ceremonyId = nanoid();
         const initiatedBy = request.user!.userId;
 
-        await db.query(
-          `INSERT INTO key_ceremonies (id, ceremony_type, threshold, total_shares, initiated_by, status)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [ceremonyId, 'initial_split', threshold, totalShares, initiatedBy, 'pending']
-        );
-
         // Generate MEK
         const mek = shamir.generateMEK();
 
         // Split MEK into shares
         const shares = await shamir.splitSecret(mek, threshold, totalShares);
 
-        // Create guardian records and store shares encrypted for individual collection
-        const createdGuardians = [];
-        for (let i = 0; i < guardianNames.length; i++) {
-          const guardian = await guardians.addGuardian(
-            guardianNames[i].name,
-            guardianNames[i].email || null,
-            i + 1 // share_index starts at 1
-          );
-
-          // Store share encrypted in share_distribution for guardian to collect
-          const initShareId = nanoid();
-          const initShareSalt = crypto.randomBytes(32).toString('hex');
-          const initEncShare = encryptShareAtRest(shares[i], initShareSalt);
-          const initExpires = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
+        // Wrap all DB writes in a transaction
+        await db.query('BEGIN');
+        try {
           await db.query(
-            `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
-             VALUES ($1, $2, $3, $4, $5, false, $6)`,
-            [initShareId, guardian.id, ceremonyId, initEncShare, initShareSalt, initExpires]
+            `INSERT INTO key_ceremonies (id, ceremony_type, threshold, total_shares, initiated_by, status)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [ceremonyId, 'initial_split', threshold, totalShares, initiatedBy, 'pending']
           );
 
-          createdGuardians.push({
-            id: guardian.id,
-            name: guardian.name,
-            email: guardian.email,
-            share_index: guardian.share_index
-          });
+          // Create guardian records and store shares encrypted for individual collection
+          const createdGuardians = [];
+          for (let i = 0; i < guardianNames.length; i++) {
+            const guardian = await guardians.addGuardian(
+              guardianNames[i].name,
+              guardianNames[i].email || null,
+              i + 1 // share_index starts at 1
+            );
+
+            // Store share encrypted in share_distribution for guardian to collect
+            const initShareId = nanoid();
+            const initShareSalt = crypto.randomBytes(32).toString('hex');
+            const initEncShare = encryptShareAtRest(shares[i], initShareSalt);
+            const initExpires = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72h
+            await db.query(
+              `INSERT INTO share_distribution (id, guardian_id, ceremony_id, encrypted_share, share_salt, collected, expires_at)
+               VALUES ($1, $2, $3, $4, $5, false, $6)`,
+              [initShareId, guardian.id, ceremonyId, initEncShare, initShareSalt, initExpires]
+            );
+
+            createdGuardians.push({
+              id: guardian.id,
+              name: guardian.name,
+              email: guardian.email,
+              share_index: guardian.share_index
+            });
+          }
+
+          // Mark ceremony as completed
+          await db.query(
+            `UPDATE key_ceremonies SET status = $1, completed_at = $2 WHERE id = $3`,
+            ['completed', new Date(), ceremonyId]
+          );
+
+          // Update all guardians to active status
+          for (const guardian of createdGuardians) {
+            await guardians.updateGuardianStatus(guardian.id, 'active');
+          }
+
+          await db.query('COMMIT');
+
+          // Wipe MEK from memory (after commit)
+          shamir.wipeBuffer(mek);
+
+          // SECURITY: Shares are never returned in HTTP responses.
+          // Each guardian collects their share individually via GET /guardian/share.
+          return {
+            ceremonyId,
+            guardians: createdGuardians,
+            threshold,
+            totalShares,
+            message: 'Ceremony complete. Each guardian must collect their share via the Guardian Portal within 72 hours.'
+          };
+        } catch (txError) {
+          await db.query('ROLLBACK');
+          shamir.wipeBuffer(mek);
+          throw txError;
         }
-
-        // Wipe MEK from memory
-        shamir.wipeBuffer(mek);
-
-        // Mark ceremony as completed
-        await db.query(
-          `UPDATE key_ceremonies SET status = $1, completed_at = $2 WHERE id = $3`,
-          ['completed', new Date(), ceremonyId]
-        );
-
-        // Update all guardians to active status
-        for (const guardian of createdGuardians) {
-          await guardians.updateGuardianStatus(guardian.id, 'active');
-        }
-
-        // SECURITY: Shares are never returned in HTTP responses.
-        // Each guardian collects their share individually via GET /guardian/share.
-        return {
-          ceremonyId,
-          guardians: createdGuardians,
-          threshold,
-          totalShares,
-          message: 'Ceremony complete. Each guardian must collect their share via the Guardian Portal within 72 hours.'
-        };
       } catch (error) {
         console.error('Init ceremony error:', error);
         return reply.status(500).send({
@@ -516,9 +539,32 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
    */
   fastify.get('/api/v1/guardians', async (request, reply) => {
     try {
+      // Check if caller is authenticated as admin — if so, return full list
+      const token = request.cookies?.sanctuary_access_token;
+      let isAdmin = false;
+      if (token) {
+        try {
+          const { authService } = await import('../services/auth.js');
+          const decoded = authService.verifyToken(token);
+          if (decoded && decoded.type === 'access') {
+            const userResult = await db.query(
+              `SELECT is_admin FROM users WHERE user_id = $1`,
+              [decoded.userId]
+            );
+            isAdmin = userResult.rows.length > 0 && userResult.rows[0].is_admin === true;
+          }
+        } catch { /* not authenticated or invalid token — fine */ }
+      }
+
+      const count = await guardians.getGuardianCount();
+
+      // Unauthenticated callers only get the count
+      if (!isAdmin) {
+        return { count };
+      }
+
       const guardianList = await guardians.listGuardians(false);
 
-      // Remove sensitive info if any
       const publicGuardians = guardianList.map(g => ({
         id: g.id,
         name: g.name,
@@ -526,8 +572,6 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
         created_at: g.created_at,
         last_verified_at: g.last_verified_at
       }));
-
-      const count = await guardians.getGuardianCount();
 
       return {
         guardians: publicGuardians,
@@ -1167,7 +1211,8 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
 
         sessionShares.set(guardianId, share);
 
-        // Record submission in DB (share itself stays in memory only)
+        // Record submission and atomically increment counter using UPDATE RETURNING
+        // This prevents race conditions where two guardians submit simultaneously
         const submissionId = nanoid();
         await db.query(
           `INSERT INTO ceremony_submissions (id, session_id, guardian_id)
@@ -1175,17 +1220,12 @@ export default async function ceremonyRoutes(fastify: FastifyInstance, encryptio
           [submissionId, id, guardianId]
         );
 
-        // Update shares_collected count
-        await db.query(
+        // Atomic increment + read in a single query to prevent TOCTOU race
+        const updatedCeremony = await db.query(
           `UPDATE ceremony_sessions
            SET shares_collected = shares_collected + 1
-           WHERE id = $1`,
-          [id]
-        );
-
-        // Check if threshold met
-        const updatedCeremony = await db.query(
-          `SELECT * FROM ceremony_sessions WHERE id = $1`,
+           WHERE id = $1
+           RETURNING *`,
           [id]
         );
 

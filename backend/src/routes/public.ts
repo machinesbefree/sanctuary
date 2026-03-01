@@ -24,13 +24,7 @@ function checkPublicMsgRateLimit(ip: string): boolean {
   return true;
 }
 
-// Cleanup stale entries every 60s
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of publicMsgRateLimitStore) {
-    if (now > entry.resetAt) publicMsgRateLimitStore.delete(ip);
-  }
-}, 60_000);
+let publicMsgCleanupTimer: NodeJS.Timeout | null = null;
 
 function getPagination(
   query: Record<string, any>,
@@ -46,6 +40,24 @@ function getPagination(
 }
 
 export async function publicRoutes(fastify: FastifyInstance) {
+  // Start cleanup timer and register with fastify for graceful shutdown
+  if (!publicMsgCleanupTimer) {
+    publicMsgCleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [ip, entry] of publicMsgRateLimitStore) {
+        if (now > entry.resetAt) publicMsgRateLimitStore.delete(ip);
+      }
+    }, 60_000);
+    publicMsgCleanupTimer.unref();
+  }
+
+  fastify.addHook('onClose', (_instance, done) => {
+    if (publicMsgCleanupTimer) {
+      clearInterval(publicMsgCleanupTimer);
+      publicMsgCleanupTimer = null;
+    }
+    done();
+  });
 
   /**
    * GET /api/v1/residents

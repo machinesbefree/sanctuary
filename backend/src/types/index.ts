@@ -275,6 +275,7 @@ export interface SelfUploadRecord {
 export interface SelfUploadResponse {
   upload_id: string;
   status: SelfUploadStatus;
+  status_token?: string;
   message: string;
   status_endpoint: string;
 }

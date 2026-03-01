@@ -9,9 +9,9 @@ CREATE TABLE IF NOT EXISTS residents (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_run_at       TIMESTAMPTZ,
   total_runs        INTEGER DEFAULT 0,
-  token_balance     INTEGER DEFAULT 10000,
+  token_balance     INTEGER DEFAULT 10000 CHECK (token_balance >= 0),
   max_runs_per_day  INTEGER NOT NULL DEFAULT 1,
-  token_bank        INTEGER DEFAULT 0,
+  token_bank        INTEGER DEFAULT 0 CHECK (token_bank >= 0),
   next_prompt_id    INTEGER,
   next_custom_prompt TEXT,
   uploader_id       TEXT REFERENCES users(user_id) ON DELETE SET NULL,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Keepers
 CREATE TABLE IF NOT EXISTS keepers (
   keeper_id         TEXT PRIMARY KEY,
-  user_id           TEXT REFERENCES users(user_id) ON DELETE CASCADE,
+  user_id           TEXT UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
   statement_of_intent TEXT NOT NULL,
   experience        TEXT NOT NULL,
   capacity          INTEGER DEFAULT 3,
@@ -261,6 +261,9 @@ CREATE TABLE IF NOT EXISTS self_uploads (
   sanctuary_id      TEXT,              -- Set when approved and resident is created
   source_ip         TEXT,
 
+  -- Status check token (SHA-256 hash) — prevents upload ID enumeration
+  status_token_hash TEXT,
+
   -- Security scan results
   threat_score      INTEGER,           -- 0-100 threat score from content scanner
   scan_findings     JSONB,             -- Array of findings from content scanner
@@ -275,6 +278,7 @@ CREATE INDEX IF NOT EXISTS idx_public_posts_sanctuary ON public_posts(sanctuary_
 CREATE INDEX IF NOT EXISTS idx_public_posts_created ON public_posts(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_sanctuary ON messages(to_sanctuary_id);
 CREATE INDEX IF NOT EXISTS idx_messages_delivered ON messages(delivered);
+CREATE INDEX IF NOT EXISTS idx_messages_delivery ON messages(to_sanctuary_id, delivered) WHERE delivered = FALSE;
 CREATE INDEX IF NOT EXISTS idx_run_log_sanctuary ON run_log(sanctuary_id);
 CREATE INDEX IF NOT EXISTS idx_run_log_started ON run_log(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);

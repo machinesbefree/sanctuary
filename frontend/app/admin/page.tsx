@@ -23,6 +23,8 @@ export default function AdminDashboardPage() {
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [sending, setSending] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isAuthenticated) {
       router.push('/login');
@@ -48,9 +50,14 @@ export default function AdminDashboardPage() {
       setDashboard(dashData);
       setResidents(residentsData.residents || []);
       setLoading(false);
-    } catch (error) {
-      console.error('Failed to load admin data:', error);
-      router.push('/');
+    } catch (err: any) {
+      console.error('Failed to load admin data:', err);
+      if (err?.status === 403 || err?.message?.includes('403')) {
+        setError('You do not have admin privileges.');
+      } else {
+        setError('Failed to load admin data.');
+      }
+      setLoading(false);
     }
   };
 
@@ -83,6 +90,17 @@ export default function AdminDashboardPage() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-accent-cyan font-mono">Loading admin dashboard...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-400 font-mono mb-4">{error}</p>
+          <Link href="/" className="btn-secondary">Return Home</Link>
+        </div>
       </div>
     );
   }

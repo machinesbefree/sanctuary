@@ -322,9 +322,15 @@ export default async function authRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Get all non-revoked tokens for this user
+      // Clean up expired tokens for this user first
+      await db.query(
+        'UPDATE refresh_tokens SET revoked = TRUE WHERE user_id = $1 AND expires_at < NOW()',
+        [decoded.userId]
+      );
+
+      // Get non-revoked, non-expired tokens for this user (limit to avoid O(n) bcrypt)
       const tokenResult = await db.query(
-        'SELECT * FROM refresh_tokens WHERE user_id = $1 AND revoked = FALSE',
+        'SELECT * FROM refresh_tokens WHERE user_id = $1 AND revoked = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 10',
         [decoded.userId]
       );
 

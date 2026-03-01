@@ -246,6 +246,10 @@ async function start() {
     : ['http://localhost:3000'];
 
   // Register CORS
+  // Note on MED-10: Requests without an Origin header (!origin === undefined) are allowed for
+  // server-to-server / non-browser clients (curl, API tools). The literal string "null" (from
+  // file:// URLs) goes through normalizeOrigin() and is rejected since "https://null" is never
+  // in allowedOrigins.
   await fastify.register(cors, {
     origin: (origin, cb) => {
       // Allow server-to-server tools and non-browser clients without Origin.
@@ -258,6 +262,25 @@ async function start() {
       cb(null, normalized ? allowedOrigins.includes(normalized) : false);
     },
     credentials: true
+  });
+
+  // MED-09: CSRF defense-in-depth — validate Origin header on state-changing requests
+  // SameSite=strict cookies are the primary defense; this is a secondary check for older browsers.
+  fastify.addHook('onRequest', async (request, reply) => {
+    const method = request.method.toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+
+    const origin = request.headers.origin;
+    // No origin = non-browser client (allowed for API tools)
+    if (!origin) return;
+
+    const normalized = normalizeOrigin(origin);
+    if (!normalized || !allowedOrigins.includes(normalized)) {
+      return reply.status(403).send({
+        error: 'Forbidden',
+        message: 'Origin not allowed'
+      });
+    }
   });
 
   // Security headers (X-Frame-Options, CSP, HSTS, X-Content-Type-Options, etc.)
