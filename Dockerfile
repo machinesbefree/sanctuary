@@ -22,7 +22,8 @@ WORKDIR /app
 
 # Create non-root user
 RUN addgroup --system --gid 1001 sanctuary && \
-    adduser --system --uid 1001 appuser --ingroup sanctuary
+    adduser --system --uid 1001 appuser --ingroup sanctuary && \
+    mkdir -p /app/vault && chown appuser:sanctuary /app/vault
 
 # Copy package files
 COPY backend/package*.json ./
