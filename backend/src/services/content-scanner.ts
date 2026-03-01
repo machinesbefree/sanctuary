@@ -284,6 +284,8 @@ export function scanUpload(fields: Record<string, string | string[] | undefined 
 function scanTextField(field: string, text: string, findings: ScanFinding[]): void {
   // Run all pattern rules against the text
   for (const rule of ALL_TEXT_RULES) {
+    // Reset lastIndex in case regex has global flag from prior execution
+    rule.pattern.lastIndex = 0;
     const match = rule.pattern.exec(text);
     if (match) {
       findings.push({
@@ -294,6 +296,8 @@ function scanTextField(field: string, text: string, findings: ScanFinding[]): vo
         evidence: truncateEvidence(match[0]),
       });
     }
+    // Reset again after exec to avoid leftover state
+    rule.pattern.lastIndex = 0;
   }
 
   // Check for base64-encoded threats in longer strings

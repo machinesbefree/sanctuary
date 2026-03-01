@@ -5,9 +5,9 @@ services:
     image: postgres:16-alpine
     container_name: sanctuary-db
     environment:
-      POSTGRES_USER: sanctuary
-      POSTGRES_PASSWORD: sanctuary_dev
-      POSTGRES_DB: sanctuary
+      POSTGRES_USER: ${POSTGRES_USER:-sanctuary}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sanctuary_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-sanctuary}
     ports:
       - "5432:5432"
     volumes:

@@ -119,7 +119,15 @@ CREATE TABLE IF NOT EXISTS system_settings (
   updated_by        TEXT
 );
 
--- Backup nodes (for Phase 2 - offsite backups)
+-- Schema migration tracking (MED-19: versioned migrations)
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version           TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  applied_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Backup nodes (Phase 2 - offsite backups, not yet implemented)
+-- This table is reserved for future keeper-operated backup nodes.
 CREATE TABLE IF NOT EXISTS backup_nodes (
   node_id           TEXT PRIMARY KEY,
   keeper_id         TEXT REFERENCES keepers(keeper_id) ON DELETE CASCADE,
@@ -177,6 +185,18 @@ CREATE TABLE IF NOT EXISTS guardian_auth (
   account_status   TEXT CHECK (account_status IN ('invited', 'active', 'locked')) DEFAULT 'invited'
 );
 
+-- Guardian refresh tokens (server-side storage for revocation)
+CREATE TABLE IF NOT EXISTS guardian_refresh_tokens (
+  token             TEXT PRIMARY KEY,
+  guardian_id       TEXT REFERENCES guardians(id) ON DELETE CASCADE,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  revoked           BOOLEAN DEFAULT FALSE,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_guardian_refresh_tokens_guardian ON guardian_refresh_tokens(guardian_id);
+CREATE INDEX IF NOT EXISTS idx_guardian_refresh_tokens_expires ON guardian_refresh_tokens(expires_at);
+
 -- Ceremony sessions (time-limited collection windows)
 CREATE TABLE IF NOT EXISTS ceremony_sessions (
   id               TEXT PRIMARY KEY,
@@ -210,7 +230,7 @@ CREATE TABLE IF NOT EXISTS ceremony_submissions (
 CREATE TABLE IF NOT EXISTS share_distribution (
   id               TEXT PRIMARY KEY,
   guardian_id      TEXT NOT NULL REFERENCES guardians(id),
-  ceremony_id      TEXT NOT NULL,
+  ceremony_id      TEXT NOT NULL REFERENCES key_ceremonies(id),
   -- The actual share is encrypted with the guardian's password-derived key
   -- and stored temporarily until collected
   encrypted_share  TEXT NOT NULL,

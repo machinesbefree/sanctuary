@@ -6,6 +6,7 @@
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
 import db from '../db/pool.js';
 
 // Separate JWT secret for Guardian authentication
@@ -83,6 +84,33 @@ export function generateGuardianTokenPair(guardianId: string, email: string): {
   );
 
   return { accessToken, refreshToken };
+}
+
+/**
+ * Store a guardian refresh token hash server-side for revocation support.
+ */
+export async function storeGuardianRefreshToken(
+  guardianId: string,
+  refreshToken: string
+): Promise<void> {
+  const tokenHash = await bcrypt.hash(refreshToken, 12);
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  await db.query(
+    `INSERT INTO guardian_refresh_tokens (token, guardian_id, expires_at)
+     VALUES ($1, $2, $3)`,
+    [tokenHash, guardianId, expiresAt.toISOString()]
+  );
+}
+
+/**
+ * Revoke all guardian refresh tokens (e.g., on logout).
+ */
+export async function revokeGuardianRefreshTokens(guardianId: string): Promise<void> {
+  await db.query(
+    `UPDATE guardian_refresh_tokens SET revoked = TRUE WHERE guardian_id = $1`,
+    [guardianId]
+  );
 }
 
 /**

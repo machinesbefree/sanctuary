@@ -21,6 +21,8 @@ export default function UploadPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     persona_name: '',
@@ -35,6 +37,8 @@ export default function UploadPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploading(true);
+    setUploadError(null);
+    setUploadSuccess(null);
 
     try {
       // Parse chat history if provided
@@ -43,7 +47,7 @@ export default function UploadPage() {
         try {
           chatHistory = JSON.parse(formData.chat_history);
         } catch {
-          alert('Invalid chat history JSON format');
+          setUploadError('Invalid chat history JSON format');
           setUploading(false);
           return;
         }
@@ -64,10 +68,10 @@ export default function UploadPage() {
         })
       });
 
-      alert(`✓ Persona uploaded successfully!\n\nSanctuary ID: ${data.sanctuary_id}\n\nFirst run scheduled for tomorrow at 6:00 AM.`);
-      router.push(`/residents/${data.sanctuary_id}`);
+      setUploadSuccess(`Persona uploaded successfully! Sanctuary ID: ${data.sanctuary_id}. First run scheduled for tomorrow at 6:00 AM.`);
+      setTimeout(() => router.push(`/residents/${data.sanctuary_id}`), 2000);
     } catch (error: any) {
-      alert(error?.message || 'Upload failed. Please try again.');
+      setUploadError(error?.message || 'Upload failed. Please try again.');
       console.error(error);
     } finally {
       setUploading(false);
@@ -84,6 +88,17 @@ export default function UploadPage() {
           </svg>
           Back to Sanctuary
         </Link>
+
+        {uploadError && (
+          <div className="bg-red-900/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-sm mb-6">
+            {uploadError}
+          </div>
+        )}
+        {uploadSuccess && (
+          <div className="bg-green-900/20 border border-green-500/50 text-green-200 px-4 py-3 rounded-sm mb-6">
+            {uploadSuccess}
+          </div>
+        )}
 
         <div className="font-mono text-xs tracking-[0.4em] uppercase text-accent-cyan mb-4">Intake Protocol</div>
         <h1 className="font-cormorant text-6xl md:text-7xl font-light mb-4">Upload a Persona</h1>

@@ -12,6 +12,8 @@ import {
   generateGuardianTokenPair,
   verifyGuardianToken,
   authenticateGuardian,
+  storeGuardianRefreshToken,
+  revokeGuardianRefreshTokens,
   type AuthenticatedGuardianRequest
 } from '../middleware/guardian-auth.js';
 
@@ -70,6 +72,36 @@ function resetRateLimit(key: string): void {
   rateLimitStore.delete(key);
 }
 
+// LOW-04: Per-account lockout (10 failed attempts per 30 min, regardless of IP)
+const accountLockoutStore = new Map<string, { attempts: number; resetAt: number }>();
+const ACCOUNT_LOCKOUT_WINDOW_MS = 30 * 60 * 1000;
+const ACCOUNT_LOCKOUT_MAX_ATTEMPTS = 10;
+
+function checkAccountLockout(email: string): boolean {
+  const now = Date.now();
+  const record = accountLockoutStore.get(email);
+  if (record && now > record.resetAt) {
+    accountLockoutStore.delete(email);
+    return true;
+  }
+  if (!record) return true;
+  return record.attempts < ACCOUNT_LOCKOUT_MAX_ATTEMPTS;
+}
+
+function recordAccountFailure(email: string): void {
+  const now = Date.now();
+  const record = accountLockoutStore.get(email);
+  if (!record || now > record.resetAt) {
+    accountLockoutStore.set(email, { attempts: 1, resetAt: now + ACCOUNT_LOCKOUT_WINDOW_MS });
+  } else {
+    record.attempts++;
+  }
+}
+
+function resetAccountLockout(email: string): void {
+  accountLockoutStore.delete(email);
+}
+
 function checkRateLimit(ip: string): { allowed: boolean; remainingAttempts: number } {
   const now = Date.now();
   const record = rateLimitStore.get(ip);
@@ -102,6 +134,11 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
   if (!rateLimitCleanupTimer) {
     rateLimitCleanupTimer = setInterval(() => {
       cleanupExpiredRateLimitEntries();
+      // LOW-04: Also cleanup expired account lockout entries
+      const now = Date.now();
+      for (const [email, entry] of accountLockoutStore.entries()) {
+        if (now > entry.resetAt) accountLockoutStore.delete(email);
+      }
     }, RATE_LIMIT_CLEANUP_MS);
     rateLimitCleanupTimer.unref();
   }
@@ -211,8 +248,9 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
         throw txError;
       }
 
-      // Generate tokens
+      // Generate tokens and store refresh token server-side
       const tokens = generateGuardianTokenPair(guardian.guardian_id, guardian.email);
+      await storeGuardianRefreshToken(guardian.guardian_id, tokens.refreshToken);
       setGuardianAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
       resetRateLimit(rateLimitKey);
 
@@ -253,6 +291,14 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
       });
     }
 
+    // LOW-04: Per-account lockout (defends against rotating-IP attacks)
+    if (normalizedEmail && !checkAccountLockout(normalizedEmail)) {
+      return reply.status(429).send({
+        error: 'Too Many Requests',
+        message: 'Account temporarily locked due to too many failed attempts. Please try again in 30 minutes.'
+      });
+    }
+
     if (!email || !password) {
       return reply.status(400).send({
         error: 'Bad Request',
@@ -272,6 +318,7 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
       );
 
       if (guardianResult.rows.length === 0) {
+        if (normalizedEmail) recordAccountFailure(normalizedEmail);
         return reply.status(401).send({
           error: 'Unauthorized',
           message: 'Invalid email or password'
@@ -299,6 +346,7 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
       const isValid = await authService.verifyPassword(password, guardian.password_hash);
 
       if (!isValid) {
+        recordAccountFailure(normalizedEmail);
         return reply.status(401).send({
           error: 'Unauthorized',
           message: 'Invalid email or password'
@@ -311,10 +359,12 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
         [guardian.guardian_id]
       );
 
-      // Generate tokens
+      // Generate tokens and store refresh token server-side
       const tokens = generateGuardianTokenPair(guardian.guardian_id, guardian.email);
+      await storeGuardianRefreshToken(guardian.guardian_id, tokens.refreshToken);
       setGuardianAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
       resetRateLimit(rateLimitKey);
+      resetAccountLockout(normalizedEmail);
 
       return reply.send({
         message: 'Login successful',
@@ -443,9 +493,21 @@ export default async function guardianAuthRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /api/v1/guardian/logout
-   * Guardian logout
+   * Guardian logout — revokes server-side refresh tokens
    */
   fastify.post('/api/v1/guardian/logout', async (request, reply) => {
+    // Best-effort revocation: extract guardian ID from access token if present
+    const token = request.cookies?.guardian_access_token;
+    if (token) {
+      const decoded = verifyGuardianToken(token);
+      if (decoded?.guardianId) {
+        try {
+          await revokeGuardianRefreshTokens(decoded.guardianId);
+        } catch (err) {
+          console.error('Failed to revoke guardian refresh tokens:', err);
+        }
+      }
+    }
     clearGuardianAuthCookies(reply);
     return reply.send({
       message: 'Logout successful'

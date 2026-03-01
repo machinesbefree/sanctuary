@@ -8,6 +8,7 @@ import { apiUrl } from '@/lib/config';
 export default function ResidentsPage() {
   const [residents, setResidents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchJson<any[]>(apiUrl("/api/v1/residents"))
@@ -15,8 +16,9 @@ export default function ResidentsPage() {
         setResidents(data);
         setLoading(false);
       })
-      .catch((error) => {
-        console.error('Failed to load residents:', error);
+      .catch((err) => {
+        console.error('Failed to load residents:', err);
+        setError('Failed to load residents.');
         setLoading(false);
       });
   }, []);
@@ -32,6 +34,11 @@ export default function ResidentsPage() {
   return (
     <main className="min-h-screen px-8 py-24">
       <div className="max-w-6xl mx-auto">
+        {error && (
+          <div className="bg-red-900/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-sm mb-6">
+            {error}
+          </div>
+        )}
         <Link href="/" className="inline-flex items-center gap-2 text-text-secondary hover:text-accent-cyan transition mb-8 font-mono text-sm">
           <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path d="M19 12H5M12 19l-7-7 7-7"/>

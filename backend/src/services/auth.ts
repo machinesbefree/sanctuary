@@ -103,6 +103,11 @@ export class AuthService {
       return { valid: false, message: 'Password must be at least 8 characters long' };
     }
 
+    // LOW-03: bcrypt silently truncates at 72 bytes — cap at 128 chars
+    if (password.length > 128) {
+      return { valid: false, message: 'Password must be 128 characters or less' };
+    }
+
     if (!/[A-Z]/.test(password)) {
       return { valid: false, message: 'Password must contain at least one uppercase letter' };
     }
@@ -120,10 +125,12 @@ export class AuthService {
 
   /**
    * Validate email format
+   * LOW-05: Tightened from permissive regex to require proper structure
    */
   validateEmail(email: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    // Require: local part (letters, digits, ._%+-), @, domain labels (letters, digits, hyphens), TLD (2+ alpha)
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/;
+    return email.length <= 254 && emailRegex.test(email);
   }
 }
 

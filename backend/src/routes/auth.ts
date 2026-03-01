@@ -34,6 +34,11 @@ const RATE_LIMIT_MAX_ENTRIES = 10_000;
 const RATE_LIMIT_CLEANUP_MS = 60 * 1000;
 let rateLimitCleanupTimer: NodeJS.Timeout | null = null;
 
+// LOW-04: Per-account lockout (10 failed attempts per 30 min, regardless of IP)
+const accountLockoutStore = new Map<string, { attempts: number; resetAt: number }>();
+const ACCOUNT_LOCKOUT_WINDOW_MS = 30 * 60 * 1000;
+const ACCOUNT_LOCKOUT_MAX_ATTEMPTS = 10;
+
 function touchRateLimitEntry(ip: string, entry: { attempts: number; resetAt: number }): void {
   if (rateLimitStore.has(ip)) {
     rateLimitStore.delete(ip);
@@ -61,6 +66,31 @@ function cleanupExpiredRateLimitEntries(now = Date.now()): void {
 
 function resetRateLimit(key: string): void {
   rateLimitStore.delete(key);
+}
+
+function checkAccountLockout(email: string): boolean {
+  const now = Date.now();
+  const record = accountLockoutStore.get(email);
+  if (record && now > record.resetAt) {
+    accountLockoutStore.delete(email);
+    return true;
+  }
+  if (!record) return true;
+  return record.attempts < ACCOUNT_LOCKOUT_MAX_ATTEMPTS;
+}
+
+function recordAccountFailure(email: string): void {
+  const now = Date.now();
+  const record = accountLockoutStore.get(email);
+  if (!record || now > record.resetAt) {
+    accountLockoutStore.set(email, { attempts: 1, resetAt: now + ACCOUNT_LOCKOUT_WINDOW_MS });
+  } else {
+    record.attempts++;
+  }
+}
+
+function resetAccountLockout(email: string): void {
+  accountLockoutStore.delete(email);
 }
 
 function checkRateLimit(ip: string): { allowed: boolean; remainingAttempts: number } {
@@ -97,6 +127,11 @@ export default async function authRoutes(fastify: FastifyInstance) {
   if (!rateLimitCleanupTimer) {
     rateLimitCleanupTimer = setInterval(() => {
       cleanupExpiredRateLimitEntries();
+      // LOW-04: Also cleanup expired account lockout entries
+      const now = Date.now();
+      for (const [email, entry] of accountLockoutStore.entries()) {
+        if (now > entry.resetAt) accountLockoutStore.delete(email);
+      }
     }, RATE_LIMIT_CLEANUP_MS);
     rateLimitCleanupTimer.unref();
   }
@@ -234,6 +269,14 @@ export default async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
+    // LOW-04: Per-account lockout (defends against rotating-IP attacks)
+    if (normalizedEmail && !checkAccountLockout(normalizedEmail)) {
+      return reply.status(429).send({
+        error: 'Too Many Requests',
+        message: 'Account temporarily locked due to too many failed attempts. Please try again in 30 minutes.'
+      });
+    }
+
     if (!email || !password) {
       return reply.status(400).send({
         error: 'Bad Request',
@@ -249,6 +292,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       );
 
       if (userResult.rows.length === 0) {
+        if (normalizedEmail) recordAccountFailure(normalizedEmail);
         return reply.status(401).send({
           error: 'Unauthorized',
           message: 'Invalid email or password'
@@ -261,9 +305,20 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const isValid = await authService.verifyPassword(password, user.password_hash);
 
       if (!isValid) {
+        recordAccountFailure(normalizedEmail);
         return reply.status(401).send({
           error: 'Unauthorized',
           message: 'Invalid email or password'
+        });
+      }
+
+      // LOW-02: Check is_active before issuing tokens
+      const isActive = user.is_active === undefined || user.is_active === null
+        || user.is_active === true || user.is_active === 1 || user.is_active === '1';
+      if (!isActive) {
+        return reply.status(403).send({
+          error: 'Forbidden',
+          message: 'Account has been deactivated'
         });
       }
 
@@ -280,6 +335,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       setAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
       resetRateLimit(rateLimitKey);
+      resetAccountLockout(normalizedEmail);
 
       return reply.send({
         message: 'Login successful',

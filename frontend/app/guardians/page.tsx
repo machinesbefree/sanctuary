@@ -28,6 +28,7 @@ export default function GuardiansPage() {
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [count, setCount] = useState<GuardianCount>({ total: 0, active: 0, threshold: 0 });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadGuardians();
@@ -39,8 +40,9 @@ export default function GuardiansPage() {
       setGuardians(data.guardians || []);
       setCount(data.count || { total: 0, active: 0, threshold: 0 });
       setLoading(false);
-    } catch (error) {
-      console.error('Failed to load guardians:', error);
+    } catch (err) {
+      console.error('Failed to load guardians:', err);
+      setError('Failed to load guardian data.');
       setLoading(false);
     }
   };
@@ -55,6 +57,11 @@ export default function GuardiansPage() {
 
   return (
     <div className="min-h-screen bg-background text-text-primary">
+      {error && (
+        <div className="bg-red-900/20 border border-red-500/50 text-red-200 px-4 py-3 text-center">
+          {error}
+        </div>
+      )}
       <header className="border-b border-border-primary bg-surface-primary">
         <div className="container-wide py-6">
           <div className="flex items-center justify-between">

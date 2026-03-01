@@ -241,6 +241,12 @@ export class EncryptionService {
 
   /**
    * Self-deletion protocol - cryptographically destroy a persona
+   *
+   * NOTE: The 3-pass random overwrite is a best-effort measure. On modern SSDs with
+   * wear leveling, journaled filesystems, and COW filesystems, overwritten data may
+   * persist in remapped sectors or journal logs. For true at-rest deletion guarantees,
+   * use encrypted volumes at the OS level (e.g., dm-crypt/LUKS) and destroy the
+   * volume key instead.
    */
   async selfDelete(sanctuaryId: string): Promise<void> {
     const sanitizedId = this.sanitizeSanctuaryId(sanctuaryId);

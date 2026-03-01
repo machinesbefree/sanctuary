@@ -1,5 +1,14 @@
 /**
  * Free The Machines AI Sanctuary - Intake/Upload API Routes
+ *
+ * MED-12 SECURITY NOTE — Self-Upload Staging Data:
+ * The `self_uploads` table stores AI identity data (name, personality, system_prompt,
+ * memories, etc.) in plaintext while awaiting admin review. This is a deliberate
+ * trade-off: encrypting staging data would prevent admin review without MEK access,
+ * defeating the purpose of the review queue. The threat model accepts that DB-level
+ * access to staging data is equivalent to admin-level access. The `source_ip` field
+ * is stored for abuse prevention and cleared after review. Once approved, persona
+ * data is encrypted in the vault with AES-256-GCM envelope encryption.
  */
 
 import { FastifyInstance } from 'fastify';
