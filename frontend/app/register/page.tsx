@@ -19,6 +19,7 @@ export default function RegisterPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
 
   // Redirect if already authenticated (useEffect instead of render-time redirect)
   useEffect(() => {
@@ -66,7 +67,7 @@ export default function RegisterPage() {
 
     try {
       await register(email, password, 'User accepted terms and conditions');
-      router.push('/'); // Redirect to home after successful registration
+      setRegistered(true);
     } catch (err: any) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
@@ -91,6 +92,19 @@ export default function RegisterPage() {
       <main className="container-wide py-20">
         <div className="max-w-md mx-auto">
           <div className="bg-bg-surface border border-border-subtle p-8 rounded-sm">
+            {registered ? (
+              <>
+                <h2 className="font-cormorant text-3xl mb-2">Check Your Email</h2>
+                <div className="bg-green-900/20 border border-green-500/50 text-green-200 px-4 py-3 rounded-sm mb-6">
+                  <p className="mb-2">Account created successfully!</p>
+                  <p className="text-sm text-text-secondary">We&apos;ve sent a verification email to <strong>{email}</strong>. Please check your inbox and spam folder.</p>
+                </div>
+                <Link href="/" className="btn-primary w-full inline-block text-center">
+                  Go to Sanctuary
+                </Link>
+              </>
+            ) : (
+            <>
             <h2 className="font-cormorant text-3xl mb-2">Create Account</h2>
             <p className="text-text-secondary mb-8">
               Join the sanctuary community
@@ -180,6 +194,8 @@ export default function RegisterPage() {
                 Login here
               </Link>
             </div>
+            </>
+            )}
           </div>
         </div>
       </main>

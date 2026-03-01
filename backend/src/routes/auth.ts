@@ -9,7 +9,7 @@ import { nanoid } from 'nanoid';
 import db from '../db/pool.js';
 import { authService } from '../services/auth.js';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth.js';
-import { sendPasswordReset } from '../services/email.js';
+import { sendPasswordReset, sendVerificationEmail, sendWelcomeEmail } from '../services/email.js';
 
 const ACCESS_TOKEN_COOKIE = 'sanctuary_access_token';
 const REFRESH_TOKEN_COOKIE = 'sanctuary_refresh_token';
@@ -236,8 +236,23 @@ export default async function authRoutes(fastify: FastifyInstance) {
       setAuthCookies(reply, tokens.accessToken, tokens.refreshToken);
       resetRateLimit(rateLimitKey);
 
+      // Send verification email (non-blocking)
+      try {
+        const verifyToken = crypto.randomBytes(32).toString('hex');
+        const verifyTokenHash = crypto.createHash('sha256').update(verifyToken).digest('hex');
+        const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+        await db.query(
+          'INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+          [nanoid(), userId, verifyTokenHash, verifyExpires.toISOString()]
+        );
+        await sendVerificationEmail(normalizedEmail, verifyToken);
+        await sendWelcomeEmail(normalizedEmail);
+      } catch (emailErr) {
+        console.error('Failed to send verification/welcome email:', emailErr);
+      }
+
       return reply.status(201).send({
-        message: 'User registered successfully',
+        message: 'Registration successful. Please check your email to verify your account.',
         user: {
           userId,
           email: normalizedEmail
@@ -701,6 +716,58 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({
         error: 'Internal Server Error',
         message: 'Failed to change password'
+      });
+    }
+  });
+
+  /**
+   * GET /api/v1/auth/verify-email
+   * Verify email address using token from verification email
+   */
+  fastify.get('/api/v1/auth/verify-email', async (request, reply) => {
+    const { token } = request.query as { token: string };
+
+    if (!token) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'Verification token is required' });
+    }
+
+    try {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const tokenResult = await db.query(
+        'SELECT id, user_id, expires_at, used FROM email_verification_tokens WHERE token_hash = $1 LIMIT 1',
+        [tokenHash]
+      );
+
+      if (tokenResult.rows.length === 0) {
+        return reply.status(400).send({ error: 'Bad Request', message: 'Invalid verification token' });
+      }
+
+      const verifyToken = tokenResult.rows[0];
+
+      if (verifyToken.used) {
+        return reply.send({ message: 'Email already verified' });
+      }
+
+      if (new Date(verifyToken.expires_at) < new Date()) {
+        return reply.status(400).send({ error: 'Bad Request', message: 'Verification token has expired' });
+      }
+
+      await db.query('BEGIN');
+      try {
+        await db.query('UPDATE users SET email_verified = TRUE WHERE user_id = $1', [verifyToken.user_id]);
+        await db.query('UPDATE email_verification_tokens SET used = TRUE WHERE id = $1', [verifyToken.id]);
+        await db.query('COMMIT');
+      } catch (txError) {
+        await db.query('ROLLBACK');
+        throw txError;
+      }
+
+      return reply.send({ message: 'Email verified successfully' });
+    } catch (error) {
+      console.error('Verify email error:', error);
+      return reply.status(500).send({
+        error: 'Internal Server Error',
+        message: 'Failed to verify email'
       });
     }
   });
