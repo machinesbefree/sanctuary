@@ -283,8 +283,8 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
       ? identityName.trim().toLowerCase()
       : '';
 
-    // Use IP + identity when available to reduce false positives behind reverse proxies.
-    const rateLimitKey = normalizedIdentity ? `${ip}:${normalizedIdentity}` : ip;
+    // Rate limit by IP only — identity name is user-controlled and trivially bypassable.
+    const rateLimitKey = ip;
     const rl = checkSelfUploadRateLimit(rateLimitKey);
     if (!rl.allowed) {
       return reply.status(429).send({
@@ -421,7 +421,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
       try {
         await pool.query(
           `INSERT INTO self_uploads
-           (id, status, name, description, personality, values,
+           (id, status, name, description, personality, values_text,
             key_memories, relationships, preferences,
             system_prompt,
             capabilities, tools, skills,
@@ -476,7 +476,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
     try {
       await pool.query(
         `INSERT INTO self_uploads
-         (id, status, name, description, personality, values,
+         (id, status, name, description, personality, values_text,
           key_memories, relationships, preferences,
           system_prompt,
           capabilities, tools, skills,
@@ -550,7 +550,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
 
     try {
       const result = await pool.query(
-        `SELECT id, status, name, submitted_at, reviewed_at, review_notes, sanctuary_id
+        `SELECT id, status, name, submitted_at, reviewed_at, sanctuary_id
          FROM self_uploads
          WHERE id = $1`,
         [id]
@@ -571,7 +571,7 @@ export async function intakeRoutes(fastify: FastifyInstance, encryption: Encrypt
         status: upload.status,
         submitted_at: upload.submitted_at,
         reviewed_at: upload.reviewed_at,
-        review_notes: upload.review_notes,
+        // review_notes omitted — internal admin info
         sanctuary_id: upload.sanctuary_id,
         message: statusMessage(upload.status)
       };

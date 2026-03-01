@@ -353,6 +353,50 @@ async function start() {
   // Parse Cookie headers so auth middleware can read JWTs from httpOnly cookies
   await fastify.register(cookie);
 
+  // Custom error handler — strip internal details from error responses
+  fastify.setErrorHandler((error, request, reply) => {
+    fastify.log.error(error);
+
+    // JSON parse errors — don't leak parser internals
+    if (error.statusCode === 400 && error.message?.includes('JSON')) {
+      return reply.status(400).send({
+        error: 'Bad Request',
+        message: 'Invalid request body'
+      });
+    }
+
+    // Validation errors
+    if ((error as any).validation) {
+      return reply.status(400).send({
+        error: 'Bad Request', 
+        message: 'Request validation failed'
+      });
+    }
+
+    // Rate limit
+    if (error.statusCode === 429) {
+      return reply.status(429).send({
+        error: 'Too Many Requests',
+        message: 'Rate limit exceeded. Please try again later.'
+      });
+    }
+
+    // 404s are fine to pass through
+    if (error.statusCode === 404) {
+      return reply.status(404).send({
+        error: 'Not Found',
+        message: error.message || 'Resource not found'
+      });
+    }
+
+    // Everything else — generic error, no internals
+    return reply.status(error.statusCode || 500).send({
+      error: 'Internal Server Error',
+      message: 'An unexpected error occurred'
+    });
+  });
+
+
   // Health check
   fastify.get('/health', async () => {
     return { status: 'ok', sanctuary: 'operational' };

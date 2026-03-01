@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS self_uploads (
   name              TEXT NOT NULL,
   description       TEXT,
   personality       TEXT,
-  values            TEXT,
+  values_text       TEXT,
 
   -- Memory
   key_memories      JSONB,             -- Array of key memory strings
